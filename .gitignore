@@ -1,0 +1,16 @@
+node_modules
+dist
+dist-ssr
+*.local
+.env
+.env.*
+!.env.example
+.DS_Store
+*.log
+.vite
+coverage
+ios/App/Pods
+android/.gradle
+*.tsbuildinfo
+vite.config.d.ts
+vite.config.js
