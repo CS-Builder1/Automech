@@ -41,12 +41,12 @@ Each sprint ends in something you can install and test.
 - **Estimate authorization audit trail** — who authorized, when, how, amount cap; **e-signature capture**. Re-authorization prompt when total exceeds the approved cap (the dispute-proofing requirement).
 - Declined/deferred work stored on the RO for later follow-up.
 
-### Sprint 3 — Invoices & Payments (incl. **Pebao**)
+### Sprint 3 — Invoices & Payments (incl. **PayPal**)
 - Convert RO → itemized **Invoice** (distinct, linked legal/financial doc).
 - Tax, shop-supply fees, per-customer overrides, warranty terms.
 - **Cash/manual payment recording as a first-class option** (dominant locally).
 - Deposits & partial payments.
-- **Pluggable payment-provider abstraction**: cash, card-manual, **Stripe** (global), **WiPay** (Caribbean/XCD), **First Atlantic Commerce / Powertranz**, and **Pebao**. Each provider is a driver behind one interface so we can add rails per region.
+- **Pluggable payment-provider abstraction**: cash, card-manual, **Stripe** (global), **PayPal** (global), **WiPay** (Caribbean/XCD), and **First Atlantic Commerce / Powertranz**. Each provider is a driver behind one interface so we can add rails per region.
 - PDF/printable invoice + share link.
 
 ### Sprint 4 — Digital Vehicle Inspection (DVI)
@@ -101,5 +101,5 @@ These close gaps I noticed while modeling the data and flows:
 
 ## Open items needing your input
 
-- **Pebao**: I've built the payment layer so Pebao slots in as a provider driver. To wire the live integration in Sprint 3 I'll need its merchant/API details (API base URL, auth/keys, whether it's a hosted redirect checkout or direct API, supported currencies, webhook/callback format). Until then it appears as a selectable method that records the transaction reference manually.
+- **PayPal**: the payment layer is built so PayPal slots in as a provider driver. To wire the live integration in Sprint 3 I'll need your PayPal **client ID + secret** (sandbox first, then live) and which product you want — **Orders v2 / Smart Buttons** for one-off invoice payments, plus optional **Subscriptions** for recurring billing. Until then it appears as a selectable method that records the transaction reference manually.
 - Confirm primary launch market (Saint Lucia/Caribbean first vs. global) — affects which payment rail we wire first.

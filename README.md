@@ -23,7 +23,7 @@ offline experience. Everything you enter is saved on the device first.
 - Responsive shell: bottom-nav on phones, sidebar on desktop; light/dark.
 
 See **[ROADMAP.md](./ROADMAP.md)** for the full sprint plan, the extra features
-being recommended beyond the research, and the Pebao payment integration plan.
+being recommended beyond the research, and the PayPal payment integration plan.
 
 ## Tech
 

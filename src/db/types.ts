@@ -33,7 +33,7 @@ export type PaymentMethod =
   | 'stripe'
   | 'wipay'
   | 'fac'      // First Atlantic Commerce / Powertranz
-  | 'pebao'
+  | 'paypal'
   | 'other'
 
 export type PaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded'
