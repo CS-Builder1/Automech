@@ -34,12 +34,14 @@ Each sprint ends in something you can install and test.
 - Shop settings: profile, **multi-currency** (billing + pegged display, e.g. USD/XCD @ 2.70), default labor/tax/markup/supplies rates.
 - Dashboard with live counts; online/offline indicator.
 
-### Sprint 2 — Work Orders, Estimates & Approval capture
-- Repair Order lifecycle (estimate → awaiting approval → approved → in progress → awaiting parts → QC → completed → invoiced).
-- Itemized line items: **labor (flat-rate vs actual hrs), parts, sublet, fees, discounts**.
-- Parts status workflow (needed → quoted → ordered → received).
-- **Estimate authorization audit trail** — who authorized, when, how, amount cap; **e-signature capture**. Re-authorization prompt when total exceeds the approved cap (the dispute-proofing requirement).
-- Declined/deferred work stored on the RO for later follow-up.
+### ✅ Sprint 2 — Work Orders, Estimates & Approval capture  *(this build)*
+- Repair Order lifecycle (estimate → awaiting approval → approved → in progress → awaiting parts → QC → completed → invoiced) with status filters.
+- Itemized line items: **labor (flat-rate vs actual hrs), parts, sublet, fees, discounts**; live totals (subtotal, shop supplies, tax, gross-profit insight).
+- Parts status workflow (needed → quoted → ordered → received) + your-cost & one-tap markup.
+- **Estimate authorization audit trail** — who authorized, when, how, amount cap; **e-signature capture**. Automatic re-authorization warning when the total exceeds the approved cap (>10% = hard re-approval prompt — the dispute-proofing requirement).
+- Declined/deferred work moved off the RO and stored for later follow-up.
+- Autosaves every field to the offline store; jobs surfaced on the customer record.
+- Verified end-to-end (headless Chromium): create→line items→totals→approval→re-auth guardrail→persistence across reload.
 
 ### Sprint 3 — Invoices & Payments (incl. **PayPal**)
 - Convert RO → itemized **Invoice** (distinct, linked legal/financial doc).

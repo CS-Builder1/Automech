@@ -3,6 +3,10 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/database'
 import { customersRepo } from '@/repositories/customers'
 import { vehiclesRepo } from '@/repositories/vehicles'
+import { workOrdersRepo } from '@/repositories/workOrders'
+import { useMoney } from '@/hooks/useMoney'
+import { computeTotals } from '@/lib/calc'
+import { STATUS_META } from '@/lib/status'
 import { PageHeader } from '@/components/ui/Page'
 import { Button } from '@/components/ui/Button'
 
@@ -10,8 +14,10 @@ export function CustomerDetail() {
   const { id = '' } = useParams()
   const navigate = useNavigate()
 
+  const money = useMoney()
   const customer = useLiveQuery(() => db.customers.get(id), [id])
   const vehicles = useLiveQuery(async () => vehiclesRepo.forCustomer(id), [id])
+  const jobs = useLiveQuery(async () => workOrdersRepo.forCustomer(id), [id])
 
   if (customer === undefined) return <p className="text-sm text-slate-400">Loading…</p>
   if (!customer || customer.deletedAt) return <p className="text-sm text-slate-400">Customer not found.</p>
@@ -71,6 +77,37 @@ export function CustomerDetail() {
         <p className="card px-4 py-6 text-center text-sm text-slate-500 dark:text-slate-400">
           No vehicles yet. Add one and decode the VIN to auto-fill the details.
         </p>
+      )}
+
+      <div className="mb-2 mt-6 flex items-center justify-between">
+        <h2 className="font-semibold">Jobs</h2>
+        <Link to={`/jobs/new?customerId=${id}`}>
+          <Button size="sm" variant="secondary">+ Start job</Button>
+        </Link>
+      </div>
+      {jobs && jobs.length > 0 ? (
+        <ul className="space-y-2">
+          {jobs.map((w) => (
+            <li key={w.id}>
+              <Link to={`/jobs/${w.id}`} className="card flex items-center justify-between px-4 py-3 hover:border-brand-300">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold">{w.number}</span>
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_META[w.status].color}`}>
+                      {STATUS_META[w.status].label}
+                    </span>
+                  </div>
+                  <div className="text-sm text-slate-500 dark:text-slate-400">
+                    {new Date(w.createdAt).toLocaleDateString()}
+                  </div>
+                </div>
+                <span className="font-semibold tabular-nums">{money(computeTotals(w).total)}</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="card px-4 py-5 text-center text-sm text-slate-500 dark:text-slate-400">No jobs yet.</p>
       )}
 
       <div className="mt-8">

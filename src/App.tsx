@@ -6,6 +6,8 @@ import { CustomerForm } from '@/pages/CustomerForm'
 import { CustomerDetail } from '@/pages/CustomerDetail'
 import { VehicleForm } from '@/pages/VehicleForm'
 import { Jobs } from '@/pages/Jobs'
+import { WorkOrderStart } from '@/pages/WorkOrderStart'
+import { WorkOrderDetail } from '@/pages/WorkOrderDetail'
 import { Settings } from '@/pages/Settings'
 
 const router = createBrowserRouter([
@@ -21,6 +23,8 @@ const router = createBrowserRouter([
       { path: 'customers/:customerId/vehicles/new', element: <VehicleForm /> },
       { path: 'customers/:customerId/vehicles/:vehicleId/edit', element: <VehicleForm /> },
       { path: 'jobs', element: <Jobs /> },
+      { path: 'jobs/new', element: <WorkOrderStart /> },
+      { path: 'jobs/:id', element: <WorkOrderDetail /> },
       { path: 'settings', element: <Settings /> },
       { path: '*', element: <Navigate to="/" replace /> },
     ],
