@@ -43,7 +43,15 @@ export function initCloud() {
 export async function sendOtp(email: string): Promise<void> {
   const sb = getSupabase()
   if (!sb) throw new Error('Cloud sync is not configured.')
-  const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: true } })
+  const { error } = await sb.auth.signInWithOtp({
+    email,
+    options: {
+      shouldCreateUser: true,
+      // If the email arrives as a link (templates not customised), clicking it
+      // returns here and supabase-js completes the session automatically.
+      emailRedirectTo: window.location.origin,
+    },
+  })
   if (error) throw error
 }
 

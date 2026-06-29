@@ -27,7 +27,7 @@ export function CloudSyncCard() {
 
   async function send() {
     setBusy(true); setMsg(null)
-    try { await sendOtp(email.trim()); setStage('code'); setMsg('We emailed you a 6-digit code.') }
+    try { await sendOtp(email.trim()); setStage('code'); setMsg('Check your email: enter the 6-digit code, or tap the link if your email shows one.') }
     catch (e) { setMsg(e instanceof Error ? e.message : 'Could not send code.') }
     finally { setBusy(false) }
   }
