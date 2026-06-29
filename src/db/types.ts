@@ -166,10 +166,13 @@ export type InspectionRating = 'green' | 'yellow' | 'red' | 'na'
 
 export interface InspectionItem {
   id: ID
+  category?: string
   label: string
   rating: InspectionRating
   note?: string
   photoIds?: ID[]
+  /** Set once this finding has been pushed onto the linked RO as a line item. */
+  addedToEstimate?: boolean
 }
 
 export interface Inspection {

@@ -4,6 +4,8 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/database'
 import { workOrdersRepo } from '@/repositories/workOrders'
 import { invoicesRepo } from '@/repositories/invoices'
+import { inspectionsRepo } from '@/repositories/inspections'
+import { STANDARD_INSPECTION, buildItems } from '@/lib/inspectionTemplates'
 import { useSettings } from '@/hooks/useSettings'
 import { useMoney } from '@/hooks/useMoney'
 import type { LineItem, WorkOrder, WorkOrderStatus, AuthorizationRecord } from '@/db/types'
@@ -24,6 +26,7 @@ export function WorkOrderDetail() {
   const customer = useLiveQuery(() => (wo ? db.customers.get(wo.customerId) : undefined), [wo?.customerId])
   const vehicle = useLiveQuery(() => (wo ? db.vehicles.get(wo.vehicleId) : undefined), [wo?.vehicleId])
   const invoice = useLiveQuery(() => invoicesRepo.forWorkOrder(id), [id])
+  const inspections = useLiveQuery(() => inspectionsRepo.forWorkOrder(id), [id])
 
   const [editingItem, setEditingItem] = useState<LineItem | undefined>()
   const [itemSheetOpen, setItemSheetOpen] = useState(false)
@@ -80,6 +83,18 @@ export function WorkOrderDetail() {
   async function saveAuth(record: AuthorizationRecord) {
     await patch({ authorization: record, status: wo!.status === 'estimate' || wo!.status === 'awaiting_approval' ? 'approved' : wo!.status })
     setAuthOpen(false)
+  }
+
+  async function startInspection() {
+    if (!wo) return
+    const inspection = await inspectionsRepo.create({
+      workOrderId: wo.id,
+      vehicleId: wo.vehicleId,
+      customerId: wo.customerId,
+      templateName: STANDARD_INSPECTION.name,
+      items: buildItems(STANDARD_INSPECTION),
+    })
+    navigate(`/inspections/${inspection.id}`)
   }
 
   async function createInvoice() {
@@ -231,6 +246,39 @@ export function WorkOrderDetail() {
         <select className="input" value={wo.status} onChange={(e) => patch({ status: e.target.value as WorkOrderStatus })}>
           {STATUS_ORDER.map((s) => <option key={s} value={s}>{STATUS_META[s].label}</option>)}
         </select>
+      </div>
+
+      {/* Inspections (DVI) */}
+      <div className="card mb-4 p-4">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold">Inspection</h2>
+          <Button size="sm" variant="secondary" onClick={startInspection}>+ New inspection</Button>
+        </div>
+        {inspections && inspections.length > 0 ? (
+          <ul className="mt-3 space-y-2">
+            {inspections.map((insp) => {
+              const red = insp.items.filter((i) => i.rating === 'red').length
+              const yellow = insp.items.filter((i) => i.rating === 'yellow').length
+              const green = insp.items.filter((i) => i.rating === 'green').length
+              return (
+                <li key={insp.id}>
+                  <Link to={`/inspections/${insp.id}`} className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2.5 text-sm hover:border-brand-300 dark:border-slate-700">
+                    <span>{new Date(insp.createdAt).toLocaleDateString()} · {insp.templateName}</span>
+                    <span className="flex gap-1.5 text-xs font-semibold">
+                      <span className="text-emerald-600">{green}</span>
+                      <span className="text-amber-600">{yellow}</span>
+                      <span className="text-red-600">{red}</span>
+                    </span>
+                  </Link>
+                </li>
+              )
+            })}
+          </ul>
+        ) : (
+          <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+            Run a digital inspection — rate each point, add photos, and push findings straight onto the estimate.
+          </p>
+        )}
       </div>
 
       {/* Invoicing */}

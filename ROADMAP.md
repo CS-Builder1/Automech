@@ -53,11 +53,14 @@ Each sprint ends in something you can install and test.
 - Invoices tab, outstanding-revenue dashboard stat, and per-customer invoice access.
 - Verified end-to-end (headless Chromium): job → invoice → deposit → partial balance → paid → persistence, zero console errors.
 
-### Sprint 4 — Digital Vehicle Inspection (DVI)
-- Templated checklist (30–100+ points), **green/yellow/red** ratings.
-- **Photo/video capture** (camera) stored offline, synced later.
-- Findings map to estimate line items; declined items → follow-up queue.
-- "Snap a paper invoice / VIN plate" capture.
+### ✅ Sprint 4 — Digital Vehicle Inspection (DVI)  *(this build)*
+- Templated **30-point checklist** grouped by category, with **green/yellow/red** ("Good/Soon/Now") ratings and a live G/Y/R tally.
+- **Camera photo capture** per item (`capture="environment"`), auto-downscaled and stored as blobs in IndexedDB so it works fully offline; photos render via object URLs and are freed on delete.
+- Per-item notes.
+- **Findings flow to the estimate** — one tap adds a yellow/red finding (with its note) as recommended labor on the linked RO; the item is marked "✓ on estimate".
+- Inspections surfaced on the work order with their rating summary; history kept per vehicle.
+- Verified end-to-end (headless Chromium): template render → red rating → photo upload/render → finding-to-estimate → persistence, zero console errors.
+- *Deferred to a later pass:* video capture, custom templates, and "snap a paper invoice" import.
 
 ### Sprint 5 — Scheduling, Reminders & Follow-up
 - Appointment calendar with bay/capacity awareness.

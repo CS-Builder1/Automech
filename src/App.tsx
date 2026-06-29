@@ -10,6 +10,7 @@ import { WorkOrderStart } from '@/pages/WorkOrderStart'
 import { WorkOrderDetail } from '@/pages/WorkOrderDetail'
 import { Invoices } from '@/pages/Invoices'
 import { InvoiceDetail } from '@/pages/InvoiceDetail'
+import { InspectionEditor } from '@/pages/InspectionEditor'
 import { Settings } from '@/pages/Settings'
 
 const router = createBrowserRouter([
@@ -29,6 +30,7 @@ const router = createBrowserRouter([
       { path: 'jobs/:id', element: <WorkOrderDetail /> },
       { path: 'invoices', element: <Invoices /> },
       { path: 'invoices/:id', element: <InvoiceDetail /> },
+      { path: 'inspections/:id', element: <InspectionEditor /> },
       { path: 'settings', element: <Settings /> },
       { path: '*', element: <Navigate to="/" replace /> },
     ],
