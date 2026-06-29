@@ -8,6 +8,8 @@ import { VehicleForm } from '@/pages/VehicleForm'
 import { Jobs } from '@/pages/Jobs'
 import { WorkOrderStart } from '@/pages/WorkOrderStart'
 import { WorkOrderDetail } from '@/pages/WorkOrderDetail'
+import { Invoices } from '@/pages/Invoices'
+import { InvoiceDetail } from '@/pages/InvoiceDetail'
 import { Settings } from '@/pages/Settings'
 
 const router = createBrowserRouter([
@@ -25,6 +27,8 @@ const router = createBrowserRouter([
       { path: 'jobs', element: <Jobs /> },
       { path: 'jobs/new', element: <WorkOrderStart /> },
       { path: 'jobs/:id', element: <WorkOrderDetail /> },
+      { path: 'invoices', element: <Invoices /> },
+      { path: 'invoices/:id', element: <InvoiceDetail /> },
       { path: 'settings', element: <Settings /> },
       { path: '*', element: <Navigate to="/" replace /> },
     ],

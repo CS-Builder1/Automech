@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/database'
 import { workOrdersRepo } from '@/repositories/workOrders'
+import { invoicesRepo } from '@/repositories/invoices'
 import { useSettings } from '@/hooks/useSettings'
 import { useMoney } from '@/hooks/useMoney'
 import type { LineItem, WorkOrder, WorkOrderStatus, AuthorizationRecord } from '@/db/types'
@@ -22,6 +23,7 @@ export function WorkOrderDetail() {
   const wo = useLiveQuery(() => db.workOrders.get(id), [id])
   const customer = useLiveQuery(() => (wo ? db.customers.get(wo.customerId) : undefined), [wo?.customerId])
   const vehicle = useLiveQuery(() => (wo ? db.vehicles.get(wo.vehicleId) : undefined), [wo?.vehicleId])
+  const invoice = useLiveQuery(() => invoicesRepo.forWorkOrder(id), [id])
 
   const [editingItem, setEditingItem] = useState<LineItem | undefined>()
   const [itemSheetOpen, setItemSheetOpen] = useState(false)
@@ -78,6 +80,13 @@ export function WorkOrderDetail() {
   async function saveAuth(record: AuthorizationRecord) {
     await patch({ authorization: record, status: wo!.status === 'estimate' || wo!.status === 'awaiting_approval' ? 'approved' : wo!.status })
     setAuthOpen(false)
+  }
+
+  async function createInvoice() {
+    if (!wo) return
+    if (wo.lineItems.length === 0) { alert('Add at least one line item before invoicing.'); return }
+    const inv = await invoicesRepo.createFromWorkOrder(wo)
+    navigate(`/invoices/${inv.id}`)
   }
 
   async function remove() {
@@ -222,11 +231,23 @@ export function WorkOrderDetail() {
         <select className="input" value={wo.status} onChange={(e) => patch({ status: e.target.value as WorkOrderStatus })}>
           {STATUS_ORDER.map((s) => <option key={s} value={s}>{STATUS_META[s].label}</option>)}
         </select>
-        {wo.status === 'completed' && (
-          <p className="mt-3 rounded-xl bg-emerald-50 px-3 py-2.5 text-sm text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-200">
-            Ready to invoice. Invoicing & payments (incl. PayPal) arrive in the next sprint.
-          </p>
-        )}
+      </div>
+
+      {/* Invoicing */}
+      <div className="card mb-4 p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="font-semibold">Invoice</h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              {invoice ? 'This job has been invoiced.' : 'Convert this job into an itemized invoice to get paid.'}
+            </p>
+          </div>
+          {invoice ? (
+            <Link to={`/invoices/${invoice.id}`}><Button size="sm" variant="secondary">View invoice</Button></Link>
+          ) : (
+            <Button size="sm" onClick={createInvoice}>Create invoice</Button>
+          )}
+        </div>
       </div>
 
       <Button variant="ghost" size="sm" onClick={remove} className="!text-red-600">Delete job</Button>

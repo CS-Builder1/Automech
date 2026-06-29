@@ -43,13 +43,15 @@ Each sprint ends in something you can install and test.
 - Autosaves every field to the offline store; jobs surfaced on the customer record.
 - Verified end-to-end (headless Chromium): create→line items→totals→approval→re-auth guardrail→persistence across reload.
 
-### Sprint 3 — Invoices & Payments (incl. **PayPal**)
-- Convert RO → itemized **Invoice** (distinct, linked legal/financial doc).
-- Tax, shop-supply fees, per-customer overrides, warranty terms.
-- **Cash/manual payment recording as a first-class option** (dominant locally).
-- Deposits & partial payments.
-- **Pluggable payment-provider abstraction**: cash, card-manual, **Stripe** (global), **PayPal** (global), **WiPay** (Caribbean/XCD), and **First Atlantic Commerce / Powertranz**. Each provider is a driver behind one interface so we can add rails per region.
-- PDF/printable invoice + share link.
+### ✅ Sprint 3 — Invoices & Payments (incl. **PayPal**)  *(this build)*
+- Convert RO → itemized **Invoice** (distinct, linked doc) with a line-item snapshot; RO auto-moves to "Invoiced".
+- Itemized invoice with subtotal / shop supplies / tax / total and live balance due.
+- **Cash/manual payment recording as a first-class option** (dominant locally) — works fully offline.
+- Deposits & partial payments; balance recomputes; invoice flips to "Paid" automatically.
+- **Pluggable payment-provider layer** (`src/payments/providers.ts`): cash, card-in-person, bank transfer, **Stripe**, **PayPal**, **WiPay**, **First Atlantic Commerce**. Gateways declare an `initiateCheckout` hook that stays "record manually" until live keys are configured — the UI and schema already accommodate them.
+- **Printable invoice** (browser Print / Save-as-PDF with a clean print stylesheet) + **Share** (Web Share API / clipboard fallback).
+- Invoices tab, outstanding-revenue dashboard stat, and per-customer invoice access.
+- Verified end-to-end (headless Chromium): job → invoice → deposit → partial balance → paid → persistence, zero console errors.
 
 ### Sprint 4 — Digital Vehicle Inspection (DVI)
 - Templated checklist (30–100+ points), **green/yellow/red** ratings.

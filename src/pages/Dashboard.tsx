@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/database'
 import { PageHeader } from '@/components/ui/Page'
 import { useSettings } from '@/hooks/useSettings'
+import { useMoney } from '@/hooks/useMoney'
 
 function StatCard({ label, value, to }: { label: string; value: string | number; to?: string }) {
   const inner = (
@@ -22,6 +23,11 @@ export function Dashboard() {
     async () => (await db.workOrders.toArray()).filter((w) => !w.deletedAt && w.status !== 'invoiced' && w.status !== 'cancelled').length,
     [],
   )
+  const outstanding = useLiveQuery(
+    async () => (await db.invoices.toArray()).filter((i) => !i.deletedAt).reduce((sum, i) => sum + Math.max(0, i.total - i.amountPaid), 0),
+    [],
+  )
+  const money = useMoney()
 
   return (
     <div>
@@ -31,6 +37,7 @@ export function Dashboard() {
         <StatCard label="Customers" value={customerCount ?? '—'} to="/customers" />
         <StatCard label="Vehicles" value={vehicleCount ?? '—'} />
         <StatCard label="Open jobs" value={openJobs ?? '—'} to="/jobs" />
+        <StatCard label="Outstanding" value={outstanding !== undefined ? money(outstanding) : '—'} to="/invoices" />
       </div>
 
       <div className="card mt-5 p-5">

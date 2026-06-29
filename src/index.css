@@ -16,6 +16,19 @@ body {
   padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
 }
 
+/* Print: show only the invoice, on white, full width. */
+@media print {
+  body { background: #fff; padding: 0; }
+  .no-print { display: none !important; }
+  main { padding: 0 !important; }
+  .invoice-print {
+    border: none !important;
+    box-shadow: none !important;
+    max-width: 100% !important;
+    color: #000 !important;
+  }
+}
+
 @layer components {
   .input {
     @apply w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-base
