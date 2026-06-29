@@ -124,6 +124,8 @@ export interface WorkOrder {
   shopSuppliesPct?: number  // shop-supply fee as % of labor+parts
   taxRatePct?: number
   notes?: string
+  /** Set when the owner has dealt with this RO's declined work, to clear it from follow-ups. */
+  followUpDismissedAt?: ISODate | null
   promisedAt?: ISODate | null
   createdAt: ISODate
   updatedAt: ISODate
@@ -203,7 +205,26 @@ export interface Appointment {
   title: string
   startAt: ISODate
   endAt?: ISODate | null
+  bay?: string        // capacity unit; overlapping bay+time flags a conflict
   notes?: string
+  createdAt: ISODate
+  updatedAt: ISODate
+  deletedAt?: ISODate | null
+}
+
+export type ReminderType = 'service' | 'inspection' | 'custom'
+
+/** Time- and/or mileage-based reminder (service due, state inspection, etc.). */
+export interface Reminder {
+  id: ID
+  customerId?: ID
+  vehicleId?: ID
+  type: ReminderType
+  title: string
+  dueDate?: ISODate | null
+  dueMileage?: number | null
+  notes?: string
+  completedAt?: ISODate | null
   createdAt: ISODate
   updatedAt: ISODate
   deletedAt?: ISODate | null

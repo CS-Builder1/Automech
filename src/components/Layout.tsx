@@ -15,12 +15,34 @@ const Icon = ({ d }: { d: string }) => (
   </svg>
 )
 
-const nav: NavItem[] = [
-  { to: '/', label: 'Home', icon: <Icon d="M3 10.5 12 3l9 7.5M5 9.5V21h14V9.5" /> },
-  { to: '/customers', label: 'Customers', icon: <Icon d="M16 19v-2a4 4 0 0 0-8 0v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" /> },
-  { to: '/jobs', label: 'Jobs', icon: <Icon d="M9 5h6M9 5a2 2 0 0 0-2 2v12h10V7a2 2 0 0 0-2-2M9 5V4M9 11h6M9 15h6" /> },
-  { to: '/invoices', label: 'Invoices', icon: <Icon d="M6 3h12a1 1 0 0 1 1 1v17l-3-2-2 2-2-2-2 2-2-2-3 2V4a1 1 0 0 1 1-1ZM8 8h8M8 12h8M8 16h5" /> },
-  { to: '/settings', label: 'Settings', icon: <Icon d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm7.4-3a7.4 7.4 0 0 0-.1-1l2-1.6-2-3.4-2.4 1a7.3 7.3 0 0 0-1.7-1l-.4-2.5H9.2L8.8 6a7.3 7.3 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.6a7.4 7.4 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7.3 7.3 0 0 0 1.7 1l.4 2.5h5.6l.4-2.5a7.3 7.3 0 0 0 1.7-1l2.4 1 2-3.4-2-1.6c.1-.3.1-.7.1-1Z" /> },
+const ICONS = {
+  home: 'M3 10.5 12 3l9 7.5M5 9.5V21h14V9.5',
+  schedule: 'M7 3v3M17 3v3M4 8h16M5 6h14a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1ZM9 13h2v2H9z',
+  customers: 'M16 19v-2a4 4 0 0 0-8 0v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z',
+  jobs: 'M9 5h6M9 5a2 2 0 0 0-2 2v12h10V7a2 2 0 0 0-2-2M9 5V4M9 11h6M9 15h6',
+  invoices: 'M6 3h12a1 1 0 0 1 1 1v17l-3-2-2 2-2-2-2 2-2-2-3 2V4a1 1 0 0 1 1-1ZM8 8h8M8 12h8M8 16h5',
+  followups: 'M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0',
+  settings: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm7.4-3a7.4 7.4 0 0 0-.1-1l2-1.6-2-3.4-2.4 1a7.3 7.3 0 0 0-1.7-1l-.4-2.5H9.2L8.8 6a7.3 7.3 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.6a7.4 7.4 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7.3 7.3 0 0 0 1.7 1l.4 2.5h5.6l.4-2.5a7.3 7.3 0 0 0 1.7-1l2.4 1 2-3.4-2-1.6c.1-.3.1-.7.1-1Z',
+}
+
+// Bottom nav (mobile) — the 5 daily-use surfaces.
+const bottomNav: NavItem[] = [
+  { to: '/', label: 'Home', icon: <Icon d={ICONS.home} /> },
+  { to: '/schedule', label: 'Schedule', icon: <Icon d={ICONS.schedule} /> },
+  { to: '/jobs', label: 'Jobs', icon: <Icon d={ICONS.jobs} /> },
+  { to: '/invoices', label: 'Invoices', icon: <Icon d={ICONS.invoices} /> },
+  { to: '/customers', label: 'Customers', icon: <Icon d={ICONS.customers} /> },
+]
+
+// Desktop sidebar — everything, including lower-frequency surfaces.
+const sidebarNav: NavItem[] = [
+  { to: '/', label: 'Home', icon: <Icon d={ICONS.home} /> },
+  { to: '/schedule', label: 'Schedule', icon: <Icon d={ICONS.schedule} /> },
+  { to: '/customers', label: 'Customers', icon: <Icon d={ICONS.customers} /> },
+  { to: '/jobs', label: 'Jobs', icon: <Icon d={ICONS.jobs} /> },
+  { to: '/invoices', label: 'Invoices', icon: <Icon d={ICONS.invoices} /> },
+  { to: '/follow-ups', label: 'Follow-ups', icon: <Icon d={ICONS.followups} /> },
+  { to: '/settings', label: 'Settings', icon: <Icon d={ICONS.settings} /> },
 ]
 
 export function Layout() {
@@ -30,7 +52,7 @@ export function Layout() {
       <aside className="no-print hidden w-60 shrink-0 border-r border-slate-200 p-4 md:block dark:border-slate-800">
         <Brand />
         <nav className="mt-6 space-y-1">
-          {nav.map((item) => (
+          {sidebarNav.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -54,7 +76,15 @@ export function Layout() {
         {/* Mobile top bar */}
         <header className="no-print flex items-center justify-between border-b border-slate-200 px-4 py-3 md:hidden dark:border-slate-800">
           <Brand />
-          <OfflineBadge />
+          <div className="flex items-center gap-1">
+            <OfflineBadge />
+            <NavLink to="/follow-ups" className="rounded-lg p-2 text-slate-500 dark:text-slate-400" aria-label="Follow-ups">
+              <Icon d={ICONS.followups} />
+            </NavLink>
+            <NavLink to="/settings" className="rounded-lg p-2 text-slate-500 dark:text-slate-400" aria-label="Settings">
+              <Icon d={ICONS.settings} />
+            </NavLink>
+          </div>
         </header>
 
         <main className="flex-1 px-4 pb-24 pt-4 md:px-8 md:pb-8">
@@ -68,7 +98,7 @@ export function Layout() {
       {/* Mobile bottom nav */}
       <nav className="no-print fixed inset-x-0 bottom-0 z-20 grid grid-cols-5 border-t border-slate-200 bg-white/95 backdrop-blur md:hidden dark:border-slate-800 dark:bg-slate-900/95"
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
-        {nav.map((item) => (
+        {bottomNav.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}

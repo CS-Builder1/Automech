@@ -1,7 +1,7 @@
 import Dexie, { type Table } from 'dexie'
 import type {
   Customer, Vehicle, WorkOrder, Invoice, Payment,
-  Inspection, MediaAsset, Appointment, ShopSettings,
+  Inspection, MediaAsset, Appointment, Reminder, ShopSettings,
 } from './types'
 
 /**
@@ -17,6 +17,7 @@ export class AutomechDB extends Dexie {
   inspections!: Table<Inspection, string>
   media!: Table<MediaAsset, string>
   appointments!: Table<Appointment, string>
+  reminders!: Table<Reminder, string>
   settings!: Table<ShopSettings, string>
 
   constructor() {
@@ -31,6 +32,10 @@ export class AutomechDB extends Dexie {
       media: 'id, createdAt',
       appointments: 'id, customerId, vehicleId, workOrderId, startAt, updatedAt, deletedAt',
       settings: 'id',
+    })
+    // v2: service / inspection reminders.
+    this.version(2).stores({
+      reminders: 'id, customerId, vehicleId, type, dueDate, completedAt, deletedAt',
     })
   }
 }

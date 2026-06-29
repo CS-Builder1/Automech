@@ -62,11 +62,14 @@ Each sprint ends in something you can install and test.
 - Verified end-to-end (headless Chromium): template render → red rating → photo upload/render → finding-to-estimate → persistence, zero console errors.
 - *Deferred to a later pass:* video capture, custom templates, and "snap a paper invoice" import.
 
-### Sprint 5 — Scheduling, Reminders & Follow-up
-- Appointment calendar with bay/capacity awareness.
-- Service/maintenance reminders (mileage + time based); state-inspection due dates.
-- Declined-work follow-up campaigns (recover deferred revenue).
-- Two-way SMS (Twilio) for approvals/reminders/"on my way".
+### ✅ Sprint 5 — Scheduling, Reminders & Follow-up  *(this build)*
+- **Appointment schedule** with a day agenda (prev/next/today), duration, optional customer/vehicle/job links, and **bay-based double-booking conflict** warnings.
+- **Service / inspection / custom reminders** — time- *and* mileage-based; overdue highlighting; mark-done.
+- **Declined-work follow-up worklist** — surfaces every RO with declined work (and its lost value) so you can win it back; one-tap **dismiss** when handled.
+- **Tap-to-Call / Text / WhatsApp** from reminders and declined work, with pre-filled, editable messages (device deep links — live two-way Twilio SMS lands with the backend in Sprint 6).
+- Home dashboard is now a hub: today's appointments, outstanding total, and a "follow-ups waiting" card.
+- Nav restructured: Schedule promoted to the bottom bar; Settings/Follow-ups in the mobile header and desktop sidebar.
+- Verified end-to-end (headless Chromium): appointment + conflict, Home surfacing, declined-work worklist + SMS link, reminder, dismiss, persistence — 11/11, zero console errors.
 
 ### Sprint 6 — Cloud sync, Auth & multi-device
 - Supabase auth (email/OTP).
