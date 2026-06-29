@@ -3,6 +3,7 @@ import { useSettings, saveSettings } from '@/hooks/useSettings'
 import { PageHeader } from '@/components/ui/Page'
 import { Button } from '@/components/ui/Button'
 import { Field, TextInput } from '@/components/ui/Field'
+import { CloudSyncCard } from '@/components/CloudSyncCard'
 import { parseAmountToMinor, minorToDecimal } from '@/lib/money'
 
 const CURRENCIES = ['USD', 'XCD', 'EUR', 'GBP', 'CAD', 'TTD', 'JMD']
@@ -125,6 +126,10 @@ export function Settings() {
           {saved && <span className="text-sm font-medium text-emerald-600">Saved ✓</span>}
         </div>
       </form>
+
+      <div className="mt-6">
+        <CloudSyncCard />
+      </div>
 
       <p className="mt-8 text-center text-xs text-slate-400">Automech v0.1 · Sprint 1 · data stored on this device</p>
     </div>

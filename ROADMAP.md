@@ -71,10 +71,12 @@ Each sprint ends in something you can install and test.
 - Nav restructured: Schedule promoted to the bottom bar; Settings/Follow-ups in the mobile header and desktop sidebar.
 - Verified end-to-end (headless Chromium): appointment + conflict, Home surfacing, declined-work worklist + SMS link, reminder, dismiss, persistence — 11/11, zero console errors.
 
-### Sprint 6 — Cloud sync, Auth & multi-device
-- Supabase auth (email/OTP).
-- **Sync engine**: local-first ↔ cloud reconciliation, conflict handling, photo upload to object storage.
-- Encrypted-at-rest customer PII; privacy policy; data export/backup.
+### ✅ Sprint 6 — Cloud sync, Auth & multi-device  *(this build)*
+- **Decoupled sync engine** (`src/sync/engine.ts`) — pull-then-push, last-write-wins by `updatedAt`, soft-delete aware. Decoupled from Dexie/Supabase via `LocalStore`/`SyncBackend` interfaces, so the merge logic is unit-tested against in-memory fakes (two simulated devices + both conflict directions + stale-write protection + idempotency: **11/11**).
+- **Supabase backend adapter** — one generic, RLS-scoped `records` table (JSON per record) + a private `media` bucket for inspection photos. SQL migration in `supabase/migrations/0001_init.sql`.
+- **Email-OTP auth** and a Cloud Sync card in Settings (sign in, last-synced, sync now, sign out); **background sync** on sign-in, window focus, and a 2-minute tick.
+- **Config-gated**: with no `VITE_SUPABASE_*` env vars the app stays 100% offline and the card shows "not configured" — so nothing breaks until you connect a project.
+- *Live multi-device sync requires connecting a Supabase project* (env vars + run the migration). The engine, adapter, auth, and migration are all in place and type-checked.
 
 ### Sprint 7 — Monetization & tiers
 - Free / Pro ($29/mo, no contract) / Enterprise tiers with entitlement gating.

@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { OfflineBadge } from './OfflineBadge'
+import { BackgroundSync } from './BackgroundSync'
 
 interface NavItem {
   to: string
@@ -48,6 +49,7 @@ const sidebarNav: NavItem[] = [
 export function Layout() {
   return (
     <div className="mx-auto flex min-h-full w-full max-w-5xl flex-col md:flex-row">
+      <BackgroundSync />
       {/* Desktop sidebar */}
       <aside className="no-print hidden w-60 shrink-0 border-r border-slate-200 p-4 md:block dark:border-slate-800">
         <Brand />
