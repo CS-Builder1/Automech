@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { customersRepo } from '@/repositories/customers'
+import { useEntitlements } from '@/billing/entitlements'
+import { PLANS } from '@/billing/plans'
 import { PageHeader } from '@/components/ui/Page'
 import { Button } from '@/components/ui/Button'
 import { Field, TextInput, TextArea } from '@/components/ui/Field'
+import { UpgradeSheet } from '@/components/UpgradeSheet'
 
 export function CustomerForm() {
   const { id } = useParams()
@@ -14,6 +17,8 @@ export function CustomerForm() {
     firstName: '', lastName: '', company: '', phone: '', email: '', address: '', notes: '',
   })
   const [saving, setSaving] = useState(false)
+  const [upgradeOpen, setUpgradeOpen] = useState(false)
+  const { canAddCustomer } = useEntitlements()
 
   useEffect(() => {
     if (!id) return
@@ -33,6 +38,7 @@ export function CustomerForm() {
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     if (!form.firstName.trim() && !form.lastName.trim()) return
+    if (!editing && !canAddCustomer) { setUpgradeOpen(true); return }
     setSaving(true)
     if (editing && id) {
       await customersRepo.update(id, form)
@@ -78,6 +84,13 @@ export function CustomerForm() {
           <Button type="button" variant="secondary" onClick={() => navigate(-1)}>Cancel</Button>
         </div>
       </form>
+
+      <UpgradeSheet
+        open={upgradeOpen}
+        title="Customer limit reached"
+        body={`The Free plan includes up to ${PLANS.free.entitlements.customers} customers. Upgrade to Pro for unlimited customers, invoices and inspections.`}
+        onClose={() => setUpgradeOpen(false)}
+      />
     </div>
   )
 }

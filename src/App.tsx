@@ -13,6 +13,7 @@ import { InvoiceDetail } from '@/pages/InvoiceDetail'
 import { InspectionEditor } from '@/pages/InspectionEditor'
 import { Schedule } from '@/pages/Schedule'
 import { FollowUps } from '@/pages/FollowUps'
+import { Plans } from '@/pages/Plans'
 import { Settings } from '@/pages/Settings'
 
 const router = createBrowserRouter([
@@ -35,6 +36,7 @@ const router = createBrowserRouter([
       { path: 'inspections/:id', element: <InspectionEditor /> },
       { path: 'schedule', element: <Schedule /> },
       { path: 'follow-ups', element: <FollowUps /> },
+      { path: 'plans', element: <Plans /> },
       { path: 'settings', element: <Settings /> },
       { path: '*', element: <Navigate to="/" replace /> },
     ],

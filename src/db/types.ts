@@ -230,9 +230,15 @@ export interface Reminder {
   deletedAt?: ISODate | null
 }
 
+export type PlanId = 'free' | 'pro' | 'enterprise'
+
 export interface ShopSettings {
   id: 'singleton'
   shopName: string
+  /** Current subscription tier; entitlements derive from this. */
+  plan?: PlanId
+  /** External billing subscription reference (e.g. PayPal subscription id). */
+  subscriptionRef?: string
   ownerName?: string
   phone?: string
   email?: string

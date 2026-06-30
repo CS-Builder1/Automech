@@ -4,6 +4,7 @@ import { PageHeader } from '@/components/ui/Page'
 import { Button } from '@/components/ui/Button'
 import { Field, TextInput } from '@/components/ui/Field'
 import { CloudSyncCard } from '@/components/CloudSyncCard'
+import { PlanCard } from '@/components/PlanCard'
 import { parseAmountToMinor, minorToDecimal } from '@/lib/money'
 
 const CURRENCIES = ['USD', 'XCD', 'EUR', 'GBP', 'CAD', 'TTD', 'JMD']
@@ -126,6 +127,10 @@ export function Settings() {
           {saved && <span className="text-sm font-medium text-emerald-600">Saved ✓</span>}
         </div>
       </form>
+
+      <div className="mt-6">
+        <PlanCard />
+      </div>
 
       <div className="mt-6">
         <CloudSyncCard />

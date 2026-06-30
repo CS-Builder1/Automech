@@ -2,9 +2,11 @@ import { useState } from 'react'
 import type { PaymentMethod } from '@/db/types'
 import { parseAmountToMinor, minorToDecimal } from '@/lib/money'
 import { PAYMENT_PROVIDERS, getProvider } from '@/payments/providers'
+import { isPaypalConfigured } from '@/billing/paypal'
 import { Sheet } from './ui/Sheet'
 import { Button } from './ui/Button'
 import { Field, TextInput } from './ui/Field'
+import { PayPalButton } from './PayPalButton'
 
 interface Props {
   open: boolean
@@ -21,6 +23,8 @@ export function RecordPaymentSheet({ open, balanceMinor, onClose, onSave }: Prop
   const [isDeposit, setIsDeposit] = useState(false)
 
   const provider = getProvider(method)
+  const paypalLive = method === 'paypal' && isPaypalConfigured()
+  const amountMinor = parseAmountToMinor(amount)
 
   function save() {
     const minor = parseAmountToMinor(amount)
@@ -57,7 +61,7 @@ export function RecordPaymentSheet({ open, balanceMinor, onClose, onSave }: Prop
           </div>
         </Field>
 
-        {provider.mode === 'gateway' && !provider.configured && (
+        {provider.mode === 'gateway' && !provider.configured && !paypalLive && (
           <p className="rounded-xl bg-slate-100 px-3 py-2.5 text-sm text-slate-600 dark:bg-slate-800 dark:text-slate-300">
             {provider.emoji} {provider.label} isn’t connected yet — this records the payment manually. Online checkout
             arrives once it’s configured.
@@ -81,7 +85,22 @@ export function RecordPaymentSheet({ open, balanceMinor, onClose, onSave }: Prop
           <TextInput id="pnote" value={note} onChange={(e) => setNote(e.target.value)} />
         </Field>
 
-        <Button type="button" full onClick={save}>Record payment</Button>
+        {paypalLive ? (
+          amountMinor > 0 ? (
+            <div>
+              <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">Take this payment online via PayPal:</p>
+              <PayPalButton
+                mode="order"
+                amountMinor={amountMinor}
+                onApproved={(ref) => onSave({ method: 'paypal', amount: amountMinor, isDeposit, reference: ref, note: note.trim() || undefined })}
+              />
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500 dark:text-slate-400">Enter an amount to pay with PayPal.</p>
+          )
+        ) : (
+          <Button type="button" full onClick={save}>Record payment</Button>
+        )}
       </div>
     </Sheet>
   )

@@ -78,10 +78,13 @@ Each sprint ends in something you can install and test.
 - **Config-gated**: with no `VITE_SUPABASE_*` env vars the app stays 100% offline and the card shows "not configured" — so nothing breaks until you connect a project.
 - *Live multi-device sync requires connecting a Supabase project* (env vars + run the migration). The engine, adapter, auth, and migration are all in place and type-checked.
 
-### Sprint 7 — Monetization & tiers
-- Free / Pro ($29/mo, no contract) / Enterprise tiers with entitlement gating.
-- **Web checkout billing** (Stripe / merchant-of-record) to keep ~95%+ of revenue in US/EU; IAP only where legally required; entitlement sync (RevenueCat-style). Region-aware billing mode.
-- "Caribbean Pro" pricing in XCD.
+### ✅ Sprint 7 — Monetization, tiers & PayPal  *(this build)*
+- **Free / Pro ($29) / Team ($79) tiers**, billed monthly, no lock-in (`src/billing/plans.ts`).
+- **Entitlement gating** with live usage counting (`useEntitlements`): Free caps at 25 customers, 10 invoices/mo, 3 inspections/mo. Hitting a cap shows a graceful **upgrade prompt** (never a hard block) at the customer, invoice and inspection create points.
+- **Plans page** with tier comparison, current-plan highlighting, live usage, and a Settings plan card. Prices shown in shop currency (USD, or pegged XCD).
+- **Live PayPal (config-gated)**: subscription checkout on the Plans page and online card capture for invoice payments, via PayPal Smart Buttons. With no `VITE_PAYPAL_*` env the app shows "checkout not connected" and invoice PayPal falls back to manual recording — nothing breaks.
+- Verified: plan entitlements unit test 10/10; e2e 8/8 (tiers render, paid-plan gated state, inspection cap → upgrade prompt → Plans); invoices regression green; zero console errors.
+- *Note:* plan is set client-side on approval today; a PayPal-webhook → backend entitlement check is the recommended hardening. Stripe/MoR and region-aware billing remain optional future rails.
 
 ### Sprint 8 — Native packaging & store readiness
 - Capacitor iOS + Android projects; camera/share/file plugins.

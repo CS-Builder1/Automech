@@ -23,6 +23,7 @@ const ICONS = {
   jobs: 'M9 5h6M9 5a2 2 0 0 0-2 2v12h10V7a2 2 0 0 0-2-2M9 5V4M9 11h6M9 15h6',
   invoices: 'M6 3h12a1 1 0 0 1 1 1v17l-3-2-2 2-2-2-2 2-2-2-3 2V4a1 1 0 0 1 1-1ZM8 8h8M8 12h8M8 16h5',
   followups: 'M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0',
+  plans: 'M3 7h18M3 7l2 13a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1l2-13M3 7l3-4h12l3 4M9 11v6M15 11v6',
   settings: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm7.4-3a7.4 7.4 0 0 0-.1-1l2-1.6-2-3.4-2.4 1a7.3 7.3 0 0 0-1.7-1l-.4-2.5H9.2L8.8 6a7.3 7.3 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.6a7.4 7.4 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7.3 7.3 0 0 0 1.7 1l.4 2.5h5.6l.4-2.5a7.3 7.3 0 0 0 1.7-1l2.4 1 2-3.4-2-1.6c.1-.3.1-.7.1-1Z',
 }
 
@@ -43,6 +44,7 @@ const sidebarNav: NavItem[] = [
   { to: '/jobs', label: 'Jobs', icon: <Icon d={ICONS.jobs} /> },
   { to: '/invoices', label: 'Invoices', icon: <Icon d={ICONS.invoices} /> },
   { to: '/follow-ups', label: 'Follow-ups', icon: <Icon d={ICONS.followups} /> },
+  { to: '/plans', label: 'Plans', icon: <Icon d={ICONS.plans} /> },
   { to: '/settings', label: 'Settings', icon: <Icon d={ICONS.settings} /> },
 ]
 

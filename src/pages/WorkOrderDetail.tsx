@@ -15,6 +15,9 @@ import { PageHeader } from '@/components/ui/Page'
 import { Button } from '@/components/ui/Button'
 import { LineItemEditor } from '@/components/LineItemEditor'
 import { AuthorizationSheet } from '@/components/AuthorizationSheet'
+import { UpgradeSheet } from '@/components/UpgradeSheet'
+import { useEntitlements } from '@/billing/entitlements'
+import { PLANS } from '@/billing/plans'
 
 export function WorkOrderDetail() {
   const { id = '' } = useParams()
@@ -31,6 +34,8 @@ export function WorkOrderDetail() {
   const [editingItem, setEditingItem] = useState<LineItem | undefined>()
   const [itemSheetOpen, setItemSheetOpen] = useState(false)
   const [authOpen, setAuthOpen] = useState(false)
+  const [upgrade, setUpgrade] = useState<{ title: string; body: string } | null>(null)
+  const { canAddInvoice, canAddInspection } = useEntitlements()
 
   if (wo === undefined) return <p className="text-sm text-slate-400">Loading…</p>
   if (!wo || wo.deletedAt) return <p className="text-sm text-slate-400">Job not found.</p>
@@ -87,6 +92,10 @@ export function WorkOrderDetail() {
 
   async function startInspection() {
     if (!wo) return
+    if (!canAddInspection) {
+      setUpgrade({ title: 'Inspection limit reached', body: `The Free plan includes ${PLANS.free.entitlements.inspectionsPerMonth} inspections per month. Upgrade to Pro for unlimited inspections with photos and video.` })
+      return
+    }
     const inspection = await inspectionsRepo.create({
       workOrderId: wo.id,
       vehicleId: wo.vehicleId,
@@ -100,6 +109,11 @@ export function WorkOrderDetail() {
   async function createInvoice() {
     if (!wo) return
     if (wo.lineItems.length === 0) { alert('Add at least one line item before invoicing.'); return }
+    // An invoice already created for this RO is never blocked (idempotent).
+    if (!invoice && !canAddInvoice) {
+      setUpgrade({ title: 'Invoice limit reached', body: `The Free plan includes ${PLANS.free.entitlements.invoicesPerMonth} invoices per month. Upgrade to Pro for unlimited invoicing.` })
+      return
+    }
     const inv = await invoicesRepo.createFromWorkOrder(wo)
     navigate(`/invoices/${inv.id}`)
   }
@@ -323,6 +337,7 @@ export function WorkOrderDetail() {
           onSave={saveAuth}
         />
       )}
+      <UpgradeSheet open={Boolean(upgrade)} title={upgrade?.title ?? ''} body={upgrade?.body ?? ''} onClose={() => setUpgrade(null)} />
     </div>
   )
 }
