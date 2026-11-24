@@ -22,8 +22,8 @@ export class AutomechDB extends Dexie {
   appointments!: Table<Appointment, string>
   settings!: Table<ShopSettings, string>
 
-  constructor() {
-    super('automech')
+  constructor(name = 'automech') {
+    super(name)
     this.version(1).stores({
       customers: 'id, lastName, firstName, phone, email, updatedAt, deletedAt',
       vehicles: 'id, customerId, vin, licensePlate, make, model, updatedAt, deletedAt',
