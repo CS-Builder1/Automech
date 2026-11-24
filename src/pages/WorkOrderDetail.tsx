@@ -118,7 +118,7 @@ export function WorkOrderDetail() {
         </div>
       </div>
 
-      <JobPlanning key={wo.id} job={wo} readOnly={readOnly} />
+      <JobPlanning key={'planning:' + wo.id} job={wo} readOnly={readOnly} />
 
       {/* Complaint / diagnosis */}
       <div className="card mb-4 space-y-3 p-4">
@@ -214,7 +214,7 @@ export function WorkOrderDetail() {
 
       {!locked && <Button variant="ghost" size="sm" onClick={() => run(archive)} className="!text-red-600">Archive job</Button>}
 
-      <JobBilling key={wo.id} workOrder={wo} />
+      <JobBilling key={'billing:' + wo.id} workOrder={wo} />
 
       {/* Mounted only while open so each open initializes from a clean `initial`. */}
       {!readOnly && settings && itemSheetOpen && (
