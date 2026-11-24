@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
-import { useLiveQuery } from 'dexie-react-hooks'
-import { db } from '@/db/database'
+import { useRecordIndex } from '@/hooks/useRecordIndex'
+import { isArchivedJob, isArchivedVehicle } from '@/lib/records'
 import { PageHeader } from '@/components/ui/Page'
 import { useSettings } from '@/hooks/useSettings'
 
@@ -16,12 +16,13 @@ function StatCard({ label, value, to }: { label: string; value: string | number;
 
 export function Dashboard() {
   const settings = useSettings()
-  const customerCount = useLiveQuery(async () => (await db.customers.toArray()).filter((c) => !c.deletedAt).length, [])
-  const vehicleCount = useLiveQuery(async () => (await db.vehicles.toArray()).filter((v) => !v.deletedAt).length, [])
-  const openJobs = useLiveQuery(
-    async () => (await db.workOrders.toArray()).filter((w) => !w.deletedAt && w.status !== 'invoiced' && w.status !== 'cancelled').length,
-    [],
-  )
+  const index = useRecordIndex()
+  const customerCount = index?.customers.filter((c) => !c.deletedAt).length
+  const vehicleCount = index?.vehicles.filter((v) => !isArchivedVehicle(v, index.customerById.get(v.customerId))).length
+  const openJobs = index?.jobs.filter((w) =>
+    !isArchivedJob(w, index.customerById.get(w.customerId), index.vehicleById.get(w.vehicleId)) &&
+    w.status !== 'invoiced' && w.status !== 'cancelled'
+  ).length
 
   return (
     <div>
@@ -29,7 +30,7 @@ export function Dashboard() {
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
         <StatCard label="Customers" value={customerCount ?? '—'} to="/customers" />
-        <StatCard label="Vehicles" value={vehicleCount ?? '—'} />
+        <StatCard label="Vehicles" value={vehicleCount ?? '—'} to="/search?type=vehicles" />
         <StatCard label="Open jobs" value={openJobs ?? '—'} to="/jobs" />
       </div>
 
@@ -43,6 +44,7 @@ export function Dashboard() {
           <Link to="/customers/new" className="rounded-xl bg-brand-600 px-4 py-2.5 font-semibold text-white hover:bg-brand-700">
             + Add customer
           </Link>
+          <Link to="/search" className="rounded-xl bg-slate-200 px-4 py-2.5 font-semibold dark:bg-slate-800">Find vehicle or job</Link>
           <Link to="/settings" className="rounded-xl bg-slate-200 px-4 py-2.5 font-semibold text-slate-800 hover:bg-slate-300 dark:bg-slate-800 dark:text-slate-100">
             Set up your shop
           </Link>

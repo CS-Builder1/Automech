@@ -109,6 +109,7 @@ export interface AuthorizationRecord {
 export interface WorkOrder {
   id: ID
   number: string            // human-friendly RO number, e.g. RO-1042
+  currency?: string
   customerId: ID
   vehicleId: ID
   status: WorkOrderStatus
