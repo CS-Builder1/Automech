@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useSettings, saveSettings } from '@/hooks/useSettings'
 import { PageHeader } from '@/components/ui/Page'
+import { BackupSettings } from '@/components/BackupSettings'
 import { Button } from '@/components/ui/Button'
 import { Field, TextInput } from '@/components/ui/Field'
 import { parseAmountToMinor, minorToDecimal } from '@/lib/money'
@@ -125,6 +126,8 @@ export function Settings() {
           {saved && <span className="text-sm font-medium text-emerald-600">Saved ✓</span>}
         </div>
       </form>
+
+      <BackupSettings />
 
       <p className="mt-8 text-center text-xs text-slate-400">Automech v0.1 · Sprint 1 · data stored on this device</p>
     </div>
