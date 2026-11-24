@@ -54,6 +54,7 @@ try {
   assert.equal(await page.getByRole('link',{name:/Edit vehicle/}).count(), 0)
   await page.goto(customer)
   await button('Restore customer').click()
+  await button('Archive customer').waitFor()
   await page.goto(base + '/search?type=vehicles')
   await page.getByRole('link',{name:/^Toyota Corolla/}).waitFor()
   console.log('Customer, vehicle and RO lookup, per-vehicle history, archive and restore verified.')

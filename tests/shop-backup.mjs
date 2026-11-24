@@ -113,6 +113,7 @@ try {
   assert.equal(before.payload.tables.customers.length, 0)
 
   for (const [mutate, expected] of [
+    [a => { a.payload.tables.customers[0].followUps = { wiper: { outcome: {}, contactedAt: now } }; recalculate(a) }, 'Invalid customers record'],
     [a => { a.payload.createdAt = now }, 'integrity check failed'],
     [a => { a.payload.version = 999; recalculate(a) }, 'Unsupported backup version'],
     [a => { delete a.payload.tables.invoices; recalculate(a) }, 'missing the invoices table'],
@@ -132,7 +133,7 @@ try {
     assert.equal(await destination.getByRole('button', { name: 'Restore shop records' }).count(), 0)
   }
   assert.deepEqual((await download(destination)).payload.tables, before.payload.tables)
-  console.log('PASS nine invalid files rejected without changing the destination')
+  console.log('PASS ten invalid files rejected without changing the destination')
 
   await upload(destination, archive)
   const restore = destination.getByRole('button', { name: 'Restore shop records' })

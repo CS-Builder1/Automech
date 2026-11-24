@@ -6,6 +6,7 @@
   "description": "Mobile-first shop management for solo & small auto repair shops",
   "scripts": {
     "dev": "vite",
+    "test": "npm run lint && npm run build && node tests/run.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "lint": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.json"

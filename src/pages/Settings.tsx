@@ -140,7 +140,7 @@ export function Settings() {
 
       <BackupSettings />
 
-      <p className="mt-8 text-center text-xs text-slate-400">Automech v0.1 · Sprint 1 · data stored on this device</p>
+      <p className="mt-8 text-center text-xs text-slate-400">Shop records are stored in this browser.</p>
     </div>
   )
 }

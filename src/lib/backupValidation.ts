@@ -30,7 +30,7 @@ function optionalStrings(...names: string[]): Fields {
 const line = fields({
   id, kind: oneOf('part', 'labor', 'fee', 'sublet', 'discount'), description: text,
   quantity: numeric, unitPrice: minor, taxable: bool,
-  ...optionalStrings('partNumber', 'supplier'), hours: optional(numeric),
+  ...optionalStrings('partNumber', 'supplier', 'expectedAt'), hours: optional(numeric),
   partStatus: optional(oneOf('needed', 'quoted', 'ordered', 'received')),
   unitCost: optional(minor), hourlyCost: optional(minor), actualHours: optional(numeric),
 })
@@ -49,6 +49,7 @@ const paymentMethod = oneOf('cash', 'card', 'bank_transfer', 'stripe', 'wipay', 
 const shapes: Record<string, Fields> = {
   customers: {
     ...common, firstName: text, lastName: text, ...optionalStrings('company', 'phone', 'email', 'address', 'notes'),
+    followUps: optional(value => record(value) && Object.values(value).every(fields({ outcome: text, contactedAt: timestamp }))),
     taxExempt: optional(bool), laborRateOverride: optional(minor), partsMarkupOverride: optional(numeric),
   },
   vehicles: {
@@ -59,7 +60,7 @@ const shapes: Record<string, Fields> = {
   workOrders: {
     ...common, ...displayRate, number: id, customerId: id, vehicleId: id,
     status: oneOf('estimate', 'awaiting_approval', 'approved', 'in_progress', 'awaiting_parts', 'quality_check', 'completed', 'invoiced', 'cancelled'),
-    ...optionalStrings('complaint', 'diagnosis', 'notes'), mileageIn: optional(count), mileageOut: optional(count),
+    ...optionalStrings('complaint', 'diagnosis', 'notes', 'technician'), mileageIn: optional(count), mileageOut: optional(count),
     promisedAt: optional(timestamp), shopSuppliesPct: optional(numeric), taxRatePct: optional(numeric),
     lineItems: array(line), declinedItems: optional(array(line)),
     authorization: optional(approval), authorizations: optional(array(approval)), currency: optional(currency),
