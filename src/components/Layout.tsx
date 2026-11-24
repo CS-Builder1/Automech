@@ -19,6 +19,7 @@ const nav: NavItem[] = [
   { to: '/', label: 'Home', icon: <Icon d="M3 10.5 12 3l9 7.5M5 9.5V21h14V9.5" /> },
   { to: '/customers', label: 'Customers', icon: <Icon d="M16 19v-2a4 4 0 0 0-8 0v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" /> },
   { to: '/jobs', label: 'Jobs', icon: <Icon d="M9 5h6M9 5a2 2 0 0 0-2 2v12h10V7a2 2 0 0 0-2-2M9 5V4M9 11h6M9 15h6" /> },
+  { to: '/billing', label: 'Billing', icon: <Icon d="M5 3h14v18l-3-2-2 2-2-2-2 2-2-2-3 2V3Zm3 5h8M8 12h8M8 16h5" /> },
   { to: '/settings', label: 'Settings', icon: <Icon d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm7.4-3a7.4 7.4 0 0 0-.1-1l2-1.6-2-3.4-2.4 1a7.3 7.3 0 0 0-1.7-1l-.4-2.5H9.2L8.8 6a7.3 7.3 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.6a7.4 7.4 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7.3 7.3 0 0 0 1.7 1l.4 2.5h5.6l.4-2.5a7.3 7.3 0 0 0 1.7-1l2.4 1 2-3.4-2-1.6c.1-.3.1-.7.1-1Z" /> },
 ]
 
@@ -65,7 +66,7 @@ export function Layout() {
       </div>
 
       {/* Mobile bottom nav */}
-      <nav className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-4 border-t border-slate-200 bg-white/95 backdrop-blur md:hidden dark:border-slate-800 dark:bg-slate-900/95"
+      <nav className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-5 border-t border-slate-200 bg-white/95 backdrop-blur md:hidden dark:border-slate-800 dark:bg-slate-900/95"
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
         {nav.map((item) => (
           <NavLink

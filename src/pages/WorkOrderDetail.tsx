@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/Button'
 import { LineItemEditor } from '@/components/LineItemEditor'
 import { AuthorizationSheet, EstimateSummary } from '@/components/AuthorizationSheet'
 import { approvalHistory, approvalIssue, estimateSnapshot, needsApproval } from '@/lib/approval'
+import { JobBilling } from '@/components/JobBilling'
 import { JobPlanning } from '@/components/operations/JobPlanning'
 import { WorkOrderField } from '@/components/WorkOrderField'
 
@@ -212,6 +213,8 @@ export function WorkOrderDetail() {
       </div>
 
       {!locked && <Button variant="ghost" size="sm" onClick={() => run(archive)} className="!text-red-600">Archive job</Button>}
+
+      <JobBilling key={wo.id} workOrder={wo} />
 
       {/* Mounted only while open so each open initializes from a clean `initial`. */}
       {!readOnly && settings && itemSheetOpen && (

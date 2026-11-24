@@ -12,6 +12,8 @@ import { WorkOrderStart } from '@/pages/WorkOrderStart'
 import { WorkOrderDetail } from '@/pages/WorkOrderDetail'
 import { Settings } from '@/pages/Settings'
 
+import { Billing } from '@/pages/Billing'
+import { InvoiceDetail } from '@/pages/InvoiceDetail'
 import { Operations } from '@/pages/Operations'
 
 const router = createBrowserRouter([
@@ -31,6 +33,8 @@ const router = createBrowserRouter([
       { path: 'jobs', element: <Jobs /> },
       { path: 'jobs/new', element: <WorkOrderStart /> },
       { path: 'jobs/:id', element: <WorkOrderDetail /> },
+      { path: 'billing', element: <Billing /> },
+      { path: 'billing/:id', element: <InvoiceDetail /> },
       { path: 'operations', element: <Operations /> },
       { path: 'settings', element: <Settings /> },
       { path: '*', element: <Navigate to="/" replace /> },
