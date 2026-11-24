@@ -1,4 +1,5 @@
 import Dexie from 'dexie'
+import { syncRestoreEpoch } from './restoreEpoch'
 import { AutomechDB, db } from '@/db/database'
 import { validateRecords, timestamp, type BackupTables } from './backupValidation'
 
@@ -51,6 +52,14 @@ function decodeBlob(value: unknown): Blob {
 
 export async function createBackup() {
   const tables = await readAll(db)
+  // The original input forms could persist NaN for blank/unparseable
+  // odometer, year or exchange rate entries. Represent missing numbers as blank.
+  for (const [table, ...fields] of [['vehicles', 'year', 'mileage'], ['workOrders', 'mileageIn', 'mileageOut'], ['settings', 'pegRate']]) {
+    for (const row of tables[table]) {
+      for (const field of fields) if (Number.isNaN(row[field])) delete row[field]
+    }
+  }
+  for (const row of tables.settings) delete row.restoreEpoch
   validateRecords(tables)
   for (const row of tables.media) row.blob = await encodeBlob(row.blob as Blob)
   const createdAt = new Date().toISOString()
@@ -133,12 +142,15 @@ export async function inspectBackup(file: File) {
     // Only validated private data reaches this operation. Dexie aborts all
     // clears and inserts together on request errors, including quota failures.
     async replaceShop() {
+      const epoch = crypto.randomUUID()
       await db.transaction('rw', db.tables, async () => {
         for (const table of db.tables) {
           await table.clear()
-          await table.bulkAdd(tables[table.name])
+          const rows = table.name === 'settings' ? tables.settings.map(row => ({ ...row, restoreEpoch: epoch })) : tables[table.name]
+          await table.bulkAdd(rows)
         }
       })
+      syncRestoreEpoch(epoch)
     },
   }
 }
