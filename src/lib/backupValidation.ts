@@ -34,11 +34,15 @@ const line = fields({
   partStatus: optional(oneOf('needed', 'quoted', 'ordered', 'received')),
   unitCost: optional(minor), hourlyCost: optional(minor), actualHours: optional(numeric),
 })
+const displayRate = { displayCurrency: optional(currency), pegRate: optional(numeric) }
 const approval = fields({
   authorizedBy: text, method: oneOf('in_person', 'phone', 'sms', 'email', 'signature', 'online'),
   authorizedAt: timestamp, amountAuthorized: minor, signatureDataUrl: optional(text),
   id: optional(id), note: optional(text), currency: optional(currency), revision: optional(count),
-  snapshot: optional(fields({ currency, lineItems: array(line), shopSuppliesPct: numeric, taxRatePct: numeric })),
+  snapshot: optional(fields({
+    currency, ...displayRate, ...optionalStrings('customerLabel', 'vehicleLabel', 'vehiclePlate'),
+    lineItems: array(line), shopSuppliesPct: numeric, taxRatePct: numeric,
+  })),
 })
 const common = { createdAt: timestamp, updatedAt: timestamp, deletedAt: optional(timestamp) }
 const paymentMethod = oneOf('cash', 'card', 'bank_transfer', 'stripe', 'wipay', 'fac', 'paypal', 'other')
@@ -53,7 +57,7 @@ const shapes: Record<string, Fields> = {
     year: optional(count), mileage: optional(count),
   },
   workOrders: {
-    ...common, number: id, customerId: id, vehicleId: id,
+    ...common, ...displayRate, number: id, customerId: id, vehicleId: id,
     status: oneOf('estimate', 'awaiting_approval', 'approved', 'in_progress', 'awaiting_parts', 'quality_check', 'completed', 'invoiced', 'cancelled'),
     ...optionalStrings('complaint', 'diagnosis', 'notes'), mileageIn: optional(count), mileageOut: optional(count),
     promisedAt: optional(timestamp), shopSuppliesPct: optional(numeric), taxRatePct: optional(numeric),
@@ -61,21 +65,21 @@ const shapes: Record<string, Fields> = {
     authorization: optional(approval), authorizations: optional(array(approval)), currency: optional(currency),
   },
   invoices: {
-    ...common, number: id, workOrderId: id, customerId: id, vehicleId: id,
+    ...common, ...displayRate, number: id, workOrderId: id, customerId: id, vehicleId: id,
     ...optionalStrings('warrantyTerms', 'shopName', 'shopContact', 'customerName', 'customerContact', 'vehicleLabel', 'workOrderNumber'),
-    issuedAt: timestamp, dueAt: optional(timestamp), lineItems: array(line), subtotal: minor, shopSupplies: minor,
+    issuedAt: timestamp, issuedDate: optional(timestamp), dueAt: optional(timestamp), lineItems: array(line), subtotal: minor, shopSupplies: minor,
     tax: minor, total: minor, amountPaid: minor, currency: optional(currency),
   },
   payments: {
     createdAt: timestamp, method: paymentMethod, status: oneOf('pending', 'paid', 'failed', 'refunded'),
-    amount: minor, invoiceId: text, ...optionalStrings('number', 'reference', 'note'), isDeposit: optional(bool), currency: optional(currency), balanceAfter: optional(minor),
+    amount: minor, invoiceId: text, ...displayRate, ...optionalStrings('number', 'reference', 'note', 'shopName', 'customerName', 'documentNumber'), recordedDate: optional(timestamp), isDeposit: optional(bool), currency: optional(currency), balanceAfter: optional(minor),
   },
   media: { createdAt: timestamp, mimeType: text, blob: (v) => v instanceof Blob },
   inspections: {
     ...common, customerId: id, vehicleId: id, templateName: text,
     items: array(fields({ id, label: text, note: optional(text), rating: oneOf('green', 'yellow', 'red', 'na'), photoIds: optional(array(id)) })),
   },
-  appointments: { ...common, title: text, notes: optional(text), startAt: timestamp, endAt: optional(timestamp) },
+  appointments: { ...common, title: text, notes: optional(text), bay: optional(text), startAt: timestamp, endAt: optional(timestamp) },
   expenses: {
     createdAt: timestamp, date: (v) => typeof v === 'string' && /^\d{4}-\d\d-\d\d$/.test(v) && timestamp(v),
     description: text, category: text, amount: (v) => count(v) && Number(v) > 0, currency, method: paymentMethod,

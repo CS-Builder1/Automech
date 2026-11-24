@@ -120,6 +120,9 @@ try {
     [a => { a.payload.tables.customers.push(a.payload.tables.customers[0]); recalculate(a) }, 'duplicate record ID'],
     [a => { a.payload.tables.workOrders[0].customerId = 'missing'; recalculate(a) }, 'references missing data'],
     [a => { a.payload.tables.workOrders[0].authorizations[0].snapshot = { currency: 'USD' }; recalculate(a) }, 'Invalid workOrders record'],
+    [a => { a.payload.tables.workOrders[0].authorizations[0].snapshot = {
+      currency: 'USD', lineItems: [line], shopSuppliesPct: 0, taxRatePct: 0, vehicleLabel: { invalid: true },
+    }; recalculate(a) }, 'Invalid workOrders record'],
     [a => { a.payload.tables.media[0].blob.base64 = 'not@base64'; recalculate(a) }, 'Invalid photo content'],
   ]) {
     const invalid = structuredClone(archive)
@@ -129,7 +132,7 @@ try {
     assert.equal(await destination.getByRole('button', { name: 'Restore shop records' }).count(), 0)
   }
   assert.deepEqual((await download(destination)).payload.tables, before.payload.tables)
-  console.log('PASS eight invalid files rejected without changing the destination')
+  console.log('PASS nine invalid files rejected without changing the destination')
 
   await upload(destination, archive)
   const restore = destination.getByRole('button', { name: 'Restore shop records' })
