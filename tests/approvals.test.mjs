@@ -252,7 +252,7 @@ test('approval identifies the vehicle and preserves the quoted exchange rate', a
     await db.customers.update('c',{lastName:'Jones'})
   })
   await page.reload()
-  const details = page.locator('details').first()
+  const details = page.locator('details').filter({ has: page.locator('summary', { hasText: 'Approval' }) }).first()
   await details.waitFor()
   const text = await details.innerText()
   assert.match(text,/Grace Lee/)

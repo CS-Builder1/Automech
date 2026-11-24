@@ -34,7 +34,8 @@ export function Sheet({ open, onClose, title, children }: Props) {
     const dialog = dialogRef.current
     if (!open || !dialog) return
     dialog.showModal()
-    dialog.querySelector<HTMLElement>('[data-initial-focus]')?.focus()
+    const first = dialog.querySelector<HTMLElement>('[data-initial-focus]') ?? dialog.querySelector('button')
+    first?.focus()
     return () => dialog.close()
   }, [open])
 
@@ -53,7 +54,7 @@ export function Sheet({ open, onClose, title, children }: Props) {
         pressedBackdrop.current = false
       }}
     >
-      <div className="max-h-[90dvh] w-full max-w-lg overflow-y-auto overscroll-contain rounded-t-2xl bg-white p-5 shadow-xl md:rounded-2xl dark:bg-slate-900"
+      <div tabIndex={-1} className="max-h-[90dvh] w-full max-w-lg overflow-y-auto overscroll-contain rounded-t-2xl bg-white p-5 shadow-xl md:rounded-2xl dark:bg-slate-900"
         style={{ paddingBottom: 'max(1.25rem, env(safe-area-inset-bottom))' }}>
         <div className="mb-4 flex items-center justify-between gap-2">
           <h2 id={titleId} className="text-lg font-bold">{title}</h2>

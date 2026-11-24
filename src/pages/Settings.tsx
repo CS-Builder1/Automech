@@ -3,7 +3,7 @@ import { useSettings, saveSettings } from '@/hooks/useSettings'
 import { PageHeader } from '@/components/ui/Page'
 import { Button } from '@/components/ui/Button'
 import { Field, TextInput } from '@/components/ui/Field'
-import { parseAmountToMinor, minorToDecimal } from '@/lib/money'
+import { parseRate, parseAmountToMinor, minorToDecimal } from '@/lib/money'
 
 const CURRENCIES = ['USD', 'XCD', 'EUR', 'GBP', 'CAD', 'TTD', 'JMD']
 
@@ -37,23 +37,28 @@ export function Settings() {
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
-    let laborRate: number
-    try { laborRate = parseAmountToMinor(form.defaultLaborRate) }
-    catch (cause) { setError('Labor rate: ' + (cause as Error).message); return }
-    await saveSettings({
-      shopName: form.shopName.trim() || 'My Shop',
-      ownerName: form.ownerName.trim() || undefined,
-      phone: form.phone.trim() || undefined,
-      email: form.email.trim() || undefined,
-      address: form.address.trim() || undefined,
-      currency: form.currency,
-      displayCurrency: form.displayCurrency || undefined,
-      pegRate: form.pegRate ? parseFloat(form.pegRate) : undefined,
-      defaultLaborRate: laborRate,
-      defaultTaxRatePct: parseFloat(form.defaultTaxRatePct) || 0,
-      defaultPartsMarkupPct: parseFloat(form.defaultPartsMarkupPct) || 0,
-      shopSuppliesPct: parseFloat(form.shopSuppliesPct) || 0,
-    })
+    try {
+      const usePeg = Boolean(form.displayCurrency && form.displayCurrency !== form.currency)
+      const pegRate = usePeg ? parseRate(form.pegRate, 'Exchange rate') : undefined
+      if (pegRate === 0) throw Error('Exchange rate must be greater than zero.')
+      await saveSettings({
+        shopName: form.shopName.trim() || 'My Shop',
+        ownerName: form.ownerName.trim() || undefined,
+        phone: form.phone.trim() || undefined,
+        email: form.email.trim() || undefined,
+        address: form.address.trim() || undefined,
+        currency: form.currency,
+        displayCurrency: usePeg ? form.displayCurrency : undefined,
+        pegRate,
+        defaultLaborRate: parseAmountToMinor(form.defaultLaborRate),
+        defaultTaxRatePct: parseRate(form.defaultTaxRatePct || '0', 'Tax rate'),
+        defaultPartsMarkupPct: parseRate(form.defaultPartsMarkupPct || '0', 'Parts markup'),
+        shopSuppliesPct: parseRate(form.shopSuppliesPct || '0', 'Shop supplies'),
+      })
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not save shop settings.')
+      return
+    }
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
