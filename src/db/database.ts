@@ -1,4 +1,5 @@
 import Dexie, { type Table } from 'dexie'
+import { normalizeLegacyOrder } from '@/lib/approval'
 import type {
   Customer, Vehicle, WorkOrder, Invoice, Payment,
   Inspection, MediaAsset, Appointment, ShopSettings,
@@ -32,6 +33,14 @@ export class AutomechDB extends Dexie {
       appointments: 'id, customerId, vehicleId, workOrderId, startAt, updatedAt, deletedAt',
       settings: 'id',
     })
+    this.version(2).stores({}).upgrade(async (tx) => {
+      const settings = await tx.table('settings').get('singleton')
+      const invoiced = new Set(await tx.table('invoices').orderBy('workOrderId').uniqueKeys())
+      await tx.table<WorkOrder>('workOrders').toCollection().modify((order) => {
+        Object.assign(order, normalizeLegacyOrder(order, settings?.currency ?? 'USD'))
+        if (order.status === 'invoiced' && !invoiced.has(order.id)) order.status = 'completed'
+      })
+    })
   }
 }
 
@@ -54,8 +63,10 @@ const SETTINGS_DEFAULTS: ShopSettings = {
 
 /** Ensure the singleton settings row exists. Safe to call on every boot. */
 export async function ensureSettings(): Promise<ShopSettings> {
-  const existing = await db.settings.get('singleton')
-  if (existing) return existing
-  await db.settings.put(SETTINGS_DEFAULTS)
-  return SETTINGS_DEFAULTS
+  return db.transaction('rw', db.settings, async () => {
+    const existing = await db.settings.get('singleton')
+    if (existing) return existing
+    await db.settings.add(SETTINGS_DEFAULTS)
+    return SETTINGS_DEFAULTS
+  })
 }

@@ -2,10 +2,14 @@
 // Display supports a pegged secondary currency (e.g. XCD pegged to USD at 2.70).
 
 export function parseAmountToMinor(input: string): number {
-  const cleaned = input.replace(/[^0-9.-]/g, '')
-  const value = parseFloat(cleaned)
-  if (Number.isNaN(value)) return 0
-  return Math.round(value * 100)
+  const value = input.trim()
+  if (!/^\d+(?:[.,]\d{1,2})?$/.test(value)) {
+    throw new Error('Enter a nonnegative amount with up to two decimal places and no grouping separators.')
+  }
+  const [whole, fraction = ''] = value.split(/[.,]/)
+  const minor = Number(whole) * 100 + Number(fraction.padEnd(2, '0'))
+  if (!Number.isSafeInteger(minor)) throw new Error('Amount is too large.')
+  return minor
 }
 
 export function minorToDecimal(minor: number): number {

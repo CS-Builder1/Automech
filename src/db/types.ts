@@ -90,14 +90,29 @@ export interface LineItem {
   supplier?: string
   unitCost?: number   // minor units (what the shop pays)
   // Labor
-  hours?: number
+  hours?: number           // billed hours (legacy and flat-rate work)
+  actualHours?: number     // technician time recorded independently
+  hourlyCost?: number      // direct labor cost per actual hour, in minor units
   // Shared
   quantity: number
   unitPrice: number   // minor units (what the customer pays, per unit/hour)
   taxable: boolean
 }
 
+export type ApprovedLine = Pick<LineItem, 'id' | 'kind' | 'description' | 'quantity' | 'unitPrice' | 'taxable' | 'partNumber'>
+
+export interface EstimateSnapshot {
+  currency: string
+  lineItems: ApprovedLine[]
+  shopSuppliesPct: number
+  taxRatePct: number
+}
+
 export interface AuthorizationRecord {
+  id?: ID
+  revision?: number
+  currency?: string
+  snapshot?: EstimateSnapshot
   authorizedBy: string      // name of person who approved
   method: AuthMethod
   authorizedAt: ISODate
@@ -109,6 +124,7 @@ export interface AuthorizationRecord {
 export interface WorkOrder {
   id: ID
   number: string            // human-friendly RO number, e.g. RO-1042
+  currency?: string
   customerId: ID
   vehicleId: ID
   status: WorkOrderStatus
@@ -118,6 +134,7 @@ export interface WorkOrder {
   mileageOut?: number
   lineItems: LineItem[]
   /** Estimate authorization trail. Re-auth required if total exceeds amountAuthorized. */
+  authorizations?: AuthorizationRecord[]
   authorization?: AuthorizationRecord
   /** Work the customer declined — stored for future follow-up revenue. */
   declinedItems?: LineItem[]
@@ -207,6 +224,7 @@ export interface Appointment {
 }
 
 export interface ShopSettings {
+  restoreEpoch?: string
   id: 'singleton'
   shopName: string
   ownerName?: string

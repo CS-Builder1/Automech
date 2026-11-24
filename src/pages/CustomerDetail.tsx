@@ -101,7 +101,7 @@ export function CustomerDetail() {
                     {new Date(w.createdAt).toLocaleDateString()}
                   </div>
                 </div>
-                <span className="font-semibold tabular-nums">{money(computeTotals(w).total)}</span>
+                <span className="font-semibold tabular-nums">{money(computeTotals(w).total, w.currency)}</span>
               </Link>
             </li>
           ))}
