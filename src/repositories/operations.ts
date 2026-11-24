@@ -1,6 +1,7 @@
 import { db } from '@/db/database'
-import type { Appointment, InspectionRating, LineItem, WorkOrder } from '@/db/types'
+import type { Appointment, InspectionRating, LineItem } from '@/db/types'
 import { newId, nowISO } from '@/lib/id'
+import { isArchivedJob } from '@/lib/records'
 
 export function localDateTime(date: Date) {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
@@ -59,14 +60,19 @@ export async function saveAppointment(
   })
 }
 
-function requireOpen(job: WorkOrder | undefined): asserts job is WorkOrder {
-  if (!job || job.deletedAt || job.status === 'invoiced' || job.status === 'cancelled')
+async function openJob(id: string) {
+  const job = await db.workOrders.get(id)
+  if (!job || job.status === 'invoiced' || job.status === 'cancelled') {
     throw Error('This job is closed or unavailable.')
+  }
+  const [customer, vehicle] = await Promise.all([db.customers.get(job.customerId), db.vehicles.get(job.vehicleId)])
+  if (isArchivedJob(job, customer, vehicle)) throw Error('Restore the archived record to change this job.')
+  return job
 }
 
 export async function updateDispatch(id: string, technician: string, promisedAt: string | null) {
-  await db.transaction('rw', db.workOrders, async () => {
-    requireOpen(await db.workOrders.get(id))
+  await db.transaction('rw', db.workOrders, db.customers, db.vehicles, async () => {
+    await openJob(id)
     await db.workOrders.update(id, { technician: technician.trim(), promisedAt, updatedAt: nowISO() })
   })
 }
@@ -76,9 +82,8 @@ export async function updatePart(
   itemId: string,
   changes: Pick<LineItem, 'supplier' | 'expectedAt' | 'partStatus'>,
 ) {
-  await db.transaction('rw', db.workOrders, async () => {
-    const job = await db.workOrders.get(jobId)
-    requireOpen(job)
+  await db.transaction('rw', db.workOrders, db.customers, db.vehicles, async () => {
+    const job = await openJob(jobId)
     if (!job.lineItems.some((item) => item.kind === 'part' && item.id === itemId))
       throw Error('This part is no longer on the job.')
     await db.workOrders.update(jobId, {
@@ -90,9 +95,8 @@ export async function updatePart(
 
 export async function saveFinding(jobId: string, label: string, rating: InspectionRating, note: string) {
   if (!label.trim()) throw Error('Enter what you inspected.')
-  await db.transaction('rw', db.workOrders, db.inspections, async () => {
-    const job = await db.workOrders.get(jobId)
-    requireOpen(job)
+  await db.transaction('rw', db.workOrders, db.inspections, db.customers, db.vehicles, async () => {
+    const job = await openJob(jobId)
     const stamp = nowISO()
     const inspection = await db.inspections
       .where('workOrderId')
@@ -121,13 +125,12 @@ export async function saveFinding(jobId: string, label: string, rating: Inspecti
 
 export async function quoteFinding(inspectionId: string, itemId: string, unitPrice: number) {
   if (!Number.isSafeInteger(unitPrice) || unitPrice < 0) throw Error('Enter a valid quoted price.')
-  await db.transaction('rw', db.workOrders, db.inspections, async () => {
+  await db.transaction('rw', db.workOrders, db.inspections, db.customers, db.vehicles, async () => {
     const inspection = await db.inspections.get(inspectionId)
     const item = inspection?.items.find((i) => i.id === itemId)
     if (!inspection?.workOrderId || inspection.deletedAt || !item)
       throw Error('Inspection finding is unavailable.')
-    const job = await db.workOrders.get(inspection.workOrderId)
-    requireOpen(job)
+    const job = await openJob(inspection.workOrderId)
     if ([...job.lineItems, ...(job.declinedItems ?? [])].some((i) => i.id === itemId)) return
     const line: LineItem = {
       id: item.id,

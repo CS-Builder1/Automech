@@ -12,7 +12,7 @@ const ratings: Record<InspectionRating, string> = {
   na: 'Not inspected',
 }
 
-export function JobPlanning({ job }: { job: WorkOrder }) {
+export function JobPlanning({ job, readOnly = false }: { job: WorkOrder; readOnly?: boolean }) {
   const [message, setMessage] = useState('')
   const inspections = useLiveQuery(
     () =>
@@ -23,7 +23,7 @@ export function JobPlanning({ job }: { job: WorkOrder }) {
         .toArray(),
     [job.id],
   )
-  const closed = ['invoiced', 'cancelled'].includes(job.status)
+  const closed = readOnly || ['invoiced', 'cancelled'].includes(job.status)
   async function submit(
     e: React.FormEvent<HTMLFormElement>,
     action: (data: FormData) => Promise<void>,

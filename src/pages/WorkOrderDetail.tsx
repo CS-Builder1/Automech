@@ -114,7 +114,7 @@ export function WorkOrderDetail() {
         </div>
       </div>
 
-      <JobPlanning key={wo.id} job={wo} />
+      <JobPlanning key={wo.id} job={wo} readOnly={!customer || !vehicle || Boolean(customer.deletedAt || vehicle.deletedAt)} />
 
       {/* Complaint / diagnosis */}
       <div className="card mb-4 space-y-3 p-4">
