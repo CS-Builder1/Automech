@@ -4,9 +4,7 @@ import type { ShopSettings } from '@/db/types'
 import { nowISO } from '@/lib/id'
 
 export function useSettings(): ShopSettings | undefined {
-  return useLiveQuery(async () => {
-    return (await db.settings.get('singleton')) ?? (await ensureSettings())
-  }, [])
+  return useLiveQuery(() => db.settings.get('singleton'), [])
 }
 
 export async function saveSettings(patch: Partial<ShopSettings>): Promise<void> {

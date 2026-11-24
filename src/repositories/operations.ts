@@ -1,6 +1,7 @@
 import { db } from '@/db/database'
 import type { Appointment, InspectionRating, LineItem } from '@/db/types'
 import { newId, nowISO } from '@/lib/id'
+import { workOrdersRepo } from './workOrders'
 import { isArchivedJob } from '@/lib/records'
 
 export function localDateTime(date: Date) {
@@ -141,6 +142,6 @@ export async function quoteFinding(inspectionId: string, itemId: string, unitPri
       unitPrice,
       taxable: Boolean(job.taxRatePct),
     }
-    await db.workOrders.update(job.id, { lineItems: [...job.lineItems, line], updatedAt: nowISO() })
+    await workOrdersRepo.changeLine(job.id, 'save', line)
   })
 }

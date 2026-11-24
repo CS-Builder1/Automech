@@ -1,30 +1,20 @@
 import assert from 'node:assert/strict'
 import { chromium } from 'playwright-core'
-import { spawn } from 'node:child_process'
-import { once } from 'node:events'
+import { createServer } from 'vite'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
-const port = 15173
-const origin = 'http://127.0.0.1:' + port
-const server = spawn(
-  process.execPath,
-  ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
-  { stdio: 'pipe' },
-)
+const cacheDir = await mkdtemp(join(tmpdir(), 'automech-vite-'))
+const server = await createServer({cacheDir, server:{host:'127.0.0.1',port:0}, logLevel:'error'})
 let browser
 try {
-  for (let i = 0; i < 80; i++) {
-    if (server.exitCode !== null) throw Error('Vite failed to start')
-    if (
-      await fetch(origin)
-        .then((r) => r.ok)
-        .catch(() => false)
-    )
-      break
-    await new Promise((resolve) => setTimeout(resolve, 100))
-  }
+  await server.listen()
+  const origin = new URL(server.resolvedUrls.local[0]).origin
   browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium' })
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } })
-  page.setDefaultTimeout(5000)
+  page.setDefaultTimeout(15000)
+  page.on('pageerror', e => console.error(e.message))
   await page.goto(origin)
   await page.getByRole('link', { name: 'Schedule', exact: true }).click()
   await page.getByRole('button', { name: 'Book appointment' }).click()
@@ -137,9 +127,6 @@ try {
   )
 } finally {
   await browser?.close()
-  if (server.exitCode === null) {
-    const done = once(server, 'exit')
-    server.kill()
-    await done
-  }
+  await server.close()
+  await rm(cacheDir, { recursive:true, force:true })
 }

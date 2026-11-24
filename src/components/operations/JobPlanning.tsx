@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/database'
 import type { InspectionRating, WorkOrder } from '@/db/types'
+import { parseAmountToMinor } from '@/lib/money'
 import { Button } from '@/components/ui/Button'
 import { localDateTime, quoteFinding, saveFinding, updateDispatch } from '@/repositories/operations'
 
@@ -135,14 +136,7 @@ export function JobPlanning({ job, readOnly = false }: { job: WorkOrder; readOnl
                     submit(
                       e,
                       (data) => {
-                        const price = String(data.get('price')).trim()
-                        if (!/^\d+(?:[.,]\d{1,2})?$/.test(price))
-                          throw Error('Enter a price with up to two decimal places.')
-                        return quoteFinding(
-                          i.id,
-                          item.id,
-                          Math.round(Number(price.replace(',', '.')) * 100),
-                        )
+                        return quoteFinding(i.id, item.id, parseAmountToMinor(String(data.get('price'))))
                       },
                       'Finding added to estimate.',
                     )
