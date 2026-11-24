@@ -1,21 +1,27 @@
-import type { AuthorizationRecord, EstimateSnapshot, WorkOrder, WorkOrderStatus } from '@/db/types'
+import type { AuthorizationRecord, Customer, EstimateSnapshot, Vehicle, WorkOrder, WorkOrderStatus } from '@/db/types'
 import { computeTotals, checkAuthorization } from './calc'
+import { displayPair } from './money'
 
 export function approvalHistory(order: WorkOrder): AuthorizationRecord[] {
   return order.authorizations ?? (order.authorization ? [order.authorization] : [])
 }
 
-export function normalizeLegacyOrder(order: WorkOrder, shopCurrency: string): WorkOrder {
+export function normalizeLegacyOrder(order: WorkOrder, shopCurrency: string, displayCurrency?: string, pegRate?: number): WorkOrder {
   const currency = order.currency ?? shopCurrency
   const authorizations = approvalHistory(order).map((record, index) => ({
     ...record, currency: record.currency ?? currency, revision: record.revision ?? index + 1,
   }))
-  return { ...order, currency, authorizations, authorization: authorizations.at(-1) }
+  const pair = currency === shopCurrency ? displayPair(currency, displayCurrency, pegRate) : {}
+  return { ...pair, ...order, currency, authorizations, authorization: authorizations.at(-1) }
 }
 
-export function estimateSnapshot(order: WorkOrder): EstimateSnapshot {
+export function estimateSnapshot(order: WorkOrder, customer?: Customer, vehicle?: Vehicle): EstimateSnapshot {
   return {
     currency: order.currency ?? 'USD',
+    ...displayPair(order.currency ?? 'USD', order.displayCurrency, order.pegRate),
+    ...(customer && { customerLabel: [customer.firstName, customer.lastName].filter(Boolean).join(' ') || customer.company || 'Customer' }),
+    ...(vehicle && { vehicleLabel: [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || vehicle.vin || vehicle.type,
+      vehiclePlate: vehicle.licensePlate }),
     lineItems: order.lineItems.map(({ id, kind, description, quantity, unitPrice, taxable, partNumber }) =>
       ({ id, kind, description, quantity, unitPrice, taxable, ...(partNumber ? { partNumber } : {}) })),
     shopSuppliesPct: order.shopSuppliesPct ?? 0,
@@ -25,7 +31,7 @@ export function estimateSnapshot(order: WorkOrder): EstimateSnapshot {
 
 /** Compare individual fields so restored objects can have any property order. */
 export function sameEstimate(a: EstimateSnapshot, b: EstimateSnapshot): boolean {
-  return a.currency === b.currency && a.taxRatePct === b.taxRatePct && a.shopSuppliesPct === b.shopSuppliesPct &&
+  return a.currency === b.currency && a.displayCurrency === b.displayCurrency && a.pegRate === b.pegRate && a.taxRatePct === b.taxRatePct && a.shopSuppliesPct === b.shopSuppliesPct &&
     a.lineItems.length === b.lineItems.length && a.lineItems.every((line, i) => {
       const other = b.lineItems[i]
       return line.id === other.id && line.kind === other.kind && line.description === other.description &&

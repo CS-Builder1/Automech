@@ -23,6 +23,12 @@ export interface FormatOptions {
   pegRate?: number
 }
 
+export function displayPair(currency: string, displayCurrency?: string, pegRate?: number): Pick<FormatOptions, 'displayCurrency' | 'pegRate'> {
+  return displayCurrency && displayCurrency !== currency && pegRate !== undefined && Number.isFinite(pegRate) && pegRate > 0
+    ? { displayCurrency, pegRate }
+    : {}
+}
+
 function fmt(minor: number, currency: string): string {
   try {
     return new Intl.NumberFormat(undefined, {

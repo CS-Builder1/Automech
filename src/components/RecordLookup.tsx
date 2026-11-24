@@ -82,7 +82,7 @@ export function RecordLookup({ section }: { section?: 'customers' | 'jobs' }) {
           {scope === 'all' && <h2 className="font-semibold">Jobs</h2>}
           {jobs.map((w) => <Link className={card} key={w.id} to={`/jobs/${w.id}`}>
             <div className="flex flex-wrap justify-between gap-2"><span className="font-semibold">{w.number} · {STATUS_META[w.status].label}</span>
-              <span className="font-semibold tabular-nums">{money(computeTotals(w).total, w.currency)}</span></div>
+              <span className="font-semibold tabular-nums">{money(computeTotals(w).total, w)}</span></div>
             <p className={sub}>{[displayCustomer(index.customerById.get(w.customerId)), displayVehicle(index.vehicleById.get(w.vehicleId)), index.vehicleById.get(w.vehicleId)?.licensePlate].filter(Boolean).join(' · ')}</p>
             {w.complaint && <p className={sub}>{w.complaint}</p>}
           </Link>)}

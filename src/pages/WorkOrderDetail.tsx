@@ -36,7 +36,7 @@ export function WorkOrderDetail() {
   if (data === undefined) return <p className="text-sm text-slate-400">Loading…</p>
   if (!data) return <p>Job not found.</p>
   const { order: wo, vehicle, customer, restoreEpoch } = data
-  const money = (amount: number) => format(amount, wo.currency)
+  const money = (amount: number) => format(amount, wo)
   const totals = computeTotals(wo)
   const history = approvalHistory(wo)
   const latest = history[history.length - 1]
@@ -122,11 +122,11 @@ export function WorkOrderDetail() {
 
       {/* Complaint / diagnosis */}
       <div className="card mb-4 space-y-3 p-4">
-        <WorkOrderField key={id + 'complaint'} order={wo} restoreEpoch={restoreEpoch} field="complaint" label="Complaint / concern" readOnly={readOnly} />
-        <WorkOrderField key={id + 'diagnosis'} order={wo} restoreEpoch={restoreEpoch} field="diagnosis" label="Diagnosis / notes" readOnly={readOnly} />
+        <WorkOrderField key={restoreEpoch + id + 'complaint'} order={wo} restoreEpoch={restoreEpoch} field="complaint" label="Complaint / concern" readOnly={readOnly} />
+        <WorkOrderField key={restoreEpoch + id + 'diagnosis'} order={wo} restoreEpoch={restoreEpoch} field="diagnosis" label="Diagnosis / notes" readOnly={readOnly} />
         <div className="grid grid-cols-2 gap-3">
-          <WorkOrderField key={id + 'in'} order={wo} restoreEpoch={restoreEpoch} field="mileageIn" label="Mileage in" readOnly={readOnly} />
-          <WorkOrderField key={id + 'out'} order={wo} restoreEpoch={restoreEpoch} field="mileageOut" label="Mileage out" readOnly={readOnly} />
+          <WorkOrderField key={restoreEpoch + id + 'in'} order={wo} restoreEpoch={restoreEpoch} field="mileageIn" label="Mileage in" readOnly={readOnly} />
+          <WorkOrderField key={restoreEpoch + id + 'out'} order={wo} restoreEpoch={restoreEpoch} field="mileageOut" label="Mileage out" readOnly={readOnly} />
         </div>
       </div>
 
@@ -165,7 +165,7 @@ export function WorkOrderDetail() {
       <section className="card mb-4 space-y-3 p-4">
         <div className="flex items-center justify-between gap-2">
           <h2 className="font-semibold">Approval</h2>
-          {!locked && <Button size="sm" disabled={!wo.lineItems.length} onClick={() => setApproval({snapshot: estimateSnapshot(wo), revision: history.length})}>
+          {!locked && <Button size="sm" disabled={!wo.lineItems.length} onClick={() => setApproval({snapshot: estimateSnapshot(wo, customer, vehicle), revision: history.length})}>
             {latest ? 'Update' : 'Capture approval'}
           </Button>}
         </div>
@@ -173,7 +173,7 @@ export function WorkOrderDetail() {
         {history.slice().reverse().map((record, i) => (
           <details className="border-t pt-2 text-sm" key={record.id ?? record.authorizedAt} open={i === 0}>
             <summary className="cursor-pointer font-medium">
-              Approval {record.revision ?? history.length - i} · {format(record.amountAuthorized, record.currency ?? wo.currency)} ({record.currency ?? wo.currency})
+              Approval {record.revision ?? history.length - i} · {format(record.amountAuthorized, record.snapshot ?? {currency: record.currency ?? wo.currency})} ({record.currency ?? wo.currency})
             </summary>
             <p>Authorized by {record.authorizedBy} · {record.method.replace('_', ' ')} · {new Date(record.authorizedAt).toLocaleString()}</p>
             {record.note && <p>{record.note}</p>}

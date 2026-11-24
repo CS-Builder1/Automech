@@ -39,7 +39,7 @@ export class AutomechDB extends Dexie {
       const settings = await tx.table('settings').get('singleton')
       const invoiced = new Set(await tx.table('invoices').orderBy('workOrderId').uniqueKeys())
       await tx.table<WorkOrder>('workOrders').toCollection().modify((order) => {
-        Object.assign(order, normalizeLegacyOrder(order, settings?.currency ?? 'USD'))
+        Object.assign(order, normalizeLegacyOrder(order, settings?.currency ?? 'USD', settings?.displayCurrency, settings?.pegRate))
         if (order.status === 'invoiced' && !invoiced.has(order.id)) order.status = 'completed'
       })
     })

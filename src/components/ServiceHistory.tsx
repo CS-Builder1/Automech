@@ -20,7 +20,7 @@ export function ServiceHistory({ jobs, vehicles }: { jobs: WorkOrder[]; vehicles
       return <li key={job.id}><Link className="card block break-words px-4 py-3 hover:border-brand-300" to={`/jobs/${job.id}`}>
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <strong>{job.number} · {STATUS_META[job.status].label}{job.deletedAt && ' · Archived'}</strong>
-          <span>{money(computeTotals(job).total, job.currency)}</span>
+          <span>{money(computeTotals(job).total, job)}</span>
         </div>
         <p className="text-sm text-slate-500">{[new Date(job.createdAt).toLocaleDateString(), vehicle && displayVehicle(vehicle), vehicle?.licensePlate, mileage].filter(Boolean).join(' · ')}</p>
         {job.complaint && <p className="mt-1 text-sm">Concern: {job.complaint}</p>}
