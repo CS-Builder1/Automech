@@ -103,6 +103,11 @@ export type ApprovedLine = Pick<LineItem, 'id' | 'kind' | 'description' | 'quant
 
 export interface EstimateSnapshot {
   currency: string
+  displayCurrency?: string
+  pegRate?: number
+  customerLabel?: string
+  vehicleLabel?: string
+  vehiclePlate?: string
   lineItems: ApprovedLine[]
   shopSuppliesPct: number
   taxRatePct: number
@@ -125,6 +130,8 @@ export interface WorkOrder {
   id: ID
   number: string            // human-friendly RO number, e.g. RO-1042
   currency?: string
+  displayCurrency?: string
+  pegRate?: number
   customerId: ID
   vehicleId: ID
   status: WorkOrderStatus
