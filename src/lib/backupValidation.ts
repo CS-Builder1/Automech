@@ -38,6 +38,7 @@ const approval = fields({
   authorizedBy: text, method: oneOf('in_person', 'phone', 'sms', 'email', 'signature', 'online'),
   authorizedAt: timestamp, amountAuthorized: minor, signatureDataUrl: optional(text),
   id: optional(id), note: optional(text), currency: optional(currency), revision: optional(count),
+  snapshot: optional(fields({ currency, lineItems: array(line), shopSuppliesPct: numeric, taxRatePct: numeric })),
 })
 const common = { createdAt: timestamp, updatedAt: timestamp, deletedAt: optional(timestamp) }
 const paymentMethod = oneOf('cash', 'card', 'bank_transfer', 'stripe', 'wipay', 'fac', 'paypal', 'other')

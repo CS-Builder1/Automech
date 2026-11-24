@@ -65,7 +65,7 @@ export function BackupSettings() {
   return (
     <section className="card mt-6 space-y-4 p-4" aria-labelledby="backup-heading">
       <h2 id="backup-heading" className="text-lg font-semibold">Backup and restore</h2>
-      <p className="text-sm">Download a copy of your shop records, signatures, photos and settings. This file contains private customer and billing information.</p>
+      <p className="text-sm">Finish any open intake to include it. Download a copy of your saved shop records, signatures, photos and settings. Keep this file private.</p>
       <Button type="button" variant="secondary" disabled={busy} onClick={download}>Download backup</Button>
       <p className="text-sm">Last backup download on this device: {lastBackup ? new Date(lastBackup).toLocaleString() : 'None yet'}</p>
       <div className="space-y-2 border-t pt-4">

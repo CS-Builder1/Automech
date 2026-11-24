@@ -61,6 +61,8 @@ async function seed(page) {
     const names = [...db.objectStoreNames]
     const tx = db.transaction(names, 'readwrite')
     for (const name of names) for (const row of data[name] || []) {
+      if (name === 'vehicles') row.mileage = NaN // original optional numeric form fields
+      if (name === 'settings') row.pegRate = NaN
       if (name === 'media') row.blob = new Blob([Uint8Array.of(0, 255, 1)], { type: 'image/png' })
       tx.objectStore(name).put(row)
     }
@@ -97,6 +99,8 @@ try {
   await seed(source)
   const archive = await download(source)
   const data = archive.payload.tables
+  assert.equal(data.vehicles[0].mileage, undefined)
+  assert.equal(data.settings[0].pegRate, undefined)
   assert.equal(data.media[0].blob.base64, 'AP8B')
   assert.deepEqual(data.workOrders[0].authorizations, [approval])
   assert.equal(data.customers.length, 2)
@@ -115,6 +119,7 @@ try {
     [a => { a.payload.tables.settings[0].roCounter = 3; recalculate(a) }, 'behind an existing document number'],
     [a => { a.payload.tables.customers.push(a.payload.tables.customers[0]); recalculate(a) }, 'duplicate record ID'],
     [a => { a.payload.tables.workOrders[0].customerId = 'missing'; recalculate(a) }, 'references missing data'],
+    [a => { a.payload.tables.workOrders[0].authorizations[0].snapshot = { currency: 'USD' }; recalculate(a) }, 'Invalid workOrders record'],
     [a => { a.payload.tables.media[0].blob.base64 = 'not@base64'; recalculate(a) }, 'Invalid photo content'],
   ]) {
     const invalid = structuredClone(archive)
@@ -124,7 +129,7 @@ try {
     assert.equal(await destination.getByRole('button', { name: 'Restore shop records' }).count(), 0)
   }
   assert.deepEqual((await download(destination)).payload.tables, before.payload.tables)
-  console.log('PASS seven invalid files rejected without changing the destination')
+  console.log('PASS eight invalid files rejected without changing the destination')
 
   await upload(destination, archive)
   const restore = destination.getByRole('button', { name: 'Restore shop records' })
@@ -133,6 +138,17 @@ try {
   await destination.getByRole('button', { name: 'Cancel restore' }).click()
   assert.deepEqual((await download(destination)).payload.tables, before.payload.tables)
 
+  const otherTab = await destination.context().newPage()
+  await otherTab.goto(origin + '/settings')
+  await otherTab.getByRole('button', { name: 'Download backup' }).waitFor()
+  for (const tab of [destination, otherTab]) {
+    await tab.evaluate(() => {
+      sessionStorage.setItem('automech:job-draft:w:complaint', 'old notes')
+      sessionStorage.setItem('automech.intake.current', 'old')
+      localStorage.setItem('automech.intake.old', 'old intake')
+      localStorage.setItem('unrelated-preference', 'keep')
+    })
+  }
   // Throw after the restore has issued clears/writes. All tables must roll back.
   await destination.evaluate(() => {
     const original = IDBObjectStore.prototype.add
@@ -145,12 +161,21 @@ try {
   await confirm(destination)
   await destination.getByRole('alert').waitFor()
   assert.deepEqual((await download(destination)).payload.tables, before.payload.tables)
+  assert.equal(await destination.evaluate(() => sessionStorage.getItem('automech:job-draft:w:complaint')), 'old notes')
   console.log('PASS cancellation and mid-transaction failure preserve existing records')
 
   await destination.reload()
   await upload(destination, archive)
   await confirm(destination)
   await destination.getByText(/Restore complete/).waitFor()
+  for (const tab of [destination, otherTab]) {
+    await tab.waitForFunction(() => !sessionStorage.getItem('automech:job-draft:w:complaint'))
+    assert.equal(await tab.evaluate(() => sessionStorage.getItem('automech.intake.current')), null)
+    assert.equal(await tab.evaluate(() => localStorage.getItem('automech.intake.old')), null)
+    assert.equal(await tab.evaluate(() => localStorage.getItem('unrelated-preference')), 'keep')
+  }
+  await otherTab.close()
+  console.log('PASS successful restore invalidates stale drafts in both tabs')
   await destination.reload()
   assert.deepEqual((await download(destination)).payload.tables, data)
   console.log('PASS fresh-device restore, reload and re-export preserve all populated stores')
@@ -166,7 +191,9 @@ try {
   await confirm(destination)
   await destination.getByText(/Restore complete/).waitFor()
   const migrated = (await download(destination)).payload.tables
-  assert.deepEqual(migrated.workOrders[0].authorization, approval)
+  for (const [field, value] of Object.entries(approval)) {
+    assert.deepEqual(migrated.workOrders[0].authorization[field], value)
+  }
   assert.equal(migrated.payments[0].id, 'p')
   if (archive.payload.schemaVersion > 1) {
     assert.equal(migrated.workOrders[0].currency, 'USD')

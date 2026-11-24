@@ -4,11 +4,15 @@ import App from './App'
 import './index.css'
 import { ensureSettings } from './db/database'
 
+import { syncRestoreEpoch, watchForRestore } from './lib/restoreEpoch'
+
+watchForRestore()
 const root = createRoot(document.getElementById('root')!)
 
 async function startShop() {
   try {
-    await ensureSettings()
+    const settings = await ensureSettings()
+    if (settings.restoreEpoch) syncRestoreEpoch(settings.restoreEpoch)
     root.render(<StrictMode><App /></StrictMode>)
   } catch {
     root.render(<main className="mx-auto max-w-lg p-6" role="alert">
