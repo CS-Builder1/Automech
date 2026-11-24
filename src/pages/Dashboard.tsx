@@ -42,6 +42,7 @@ export function Dashboard() {
     { label: 'Outstanding parts', value: stats?.parts, to: '/operations?view=parts' },
     { label: 'Ready for pickup', value: stats?.ready, to: '/operations?view=pickups' },
     { label: 'Customers', value: stats?.customers, to: '/customers' },
+    { label: 'Vehicles', value: stats?.vehicles, to: '/search?type=vehicles' },
   ]
   return (
     <div>
@@ -50,6 +51,7 @@ export function Dashboard() {
         <Link className="rounded-xl bg-brand-600 px-4 py-3 font-semibold text-white" to="/jobs/new">
           New job
         </Link>
+        <Link className="card px-4 py-3 font-semibold" to="/search">Find vehicle or job</Link>
         <Link className="card px-4 py-3 font-semibold" to="/operations">
           Schedule
         </Link>

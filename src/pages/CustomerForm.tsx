@@ -1,47 +1,92 @@
-import { useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { customersRepo } from '@/repositories/customers'
+import { afterRecordCreated, intakePath, readIntakeForm, requireDraft, saveIntakeForm } from '@/lib/intakeDraft'
 import { PageHeader } from '@/components/ui/Page'
 import { Button } from '@/components/ui/Button'
 import { Field, TextInput, TextArea } from '@/components/ui/Field'
 
 export function CustomerForm() {
   const { id } = useParams()
-  const editing = Boolean(id)
+  const [params] = useSearchParams()
+  const draft = !id ? params.get('draft') : null
+  return <CustomerEditor key={id ?? draft ?? 'new'} id={id} draft={draft} />
+}
+
+const blankCustomer = {
+  firstName: '', lastName: '', company: '', phone: '', email: '', address: '', notes: '',
+}
+
+function CustomerEditor({ id, draft }: { id?: string; draft: string | null }) {
   const navigate = useNavigate()
-
-  const [form, setForm] = useState({
-    firstName: '', lastName: '', company: '', phone: '', email: '', address: '', notes: '',
-  })
+  const editing = Boolean(id)
+  const cacheKey = draft ? draft + '.customer' : null
+  const [form, setForm] = useState(() => readIntakeForm(cacheKey, blankCustomer))
+  const [loaded, setLoaded] = useState(!id)
+  const [unavailable, setUnavailable] = useState(false)
+  const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
-
+  const busy = useRef(false)
   useEffect(() => {
     if (!id) return
-    customersRepo.get(id).then((c) => {
-      if (c) {
-        setForm({
-          firstName: c.firstName, lastName: c.lastName ?? '', company: c.company ?? '',
-          phone: c.phone ?? '', email: c.email ?? '', address: c.address ?? '', notes: c.notes ?? '',
-        })
-      }
-    })
+    let active = true
+    customersRepo.get(id).then(c => {
+      if (!active) return
+      if (!c || c.deletedAt) setUnavailable(true)
+      else setForm({
+        firstName: c.firstName, lastName: c.lastName ?? '', company: c.company ?? '',
+        phone: c.phone ?? '', email: c.email ?? '', address: c.address ?? '', notes: c.notes ?? '',
+      })
+      setLoaded(true)
+    }).catch(() => { if (active) { setUnavailable(true); setLoaded(true) } })
+    return () => { active = false }
   }, [id])
 
-  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-    setForm((f) => ({ ...f, [k]: e.target.value }))
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const next = { ...form, [k]: e.target.value }
+    setForm(next)
+    try {
+      saveIntakeForm(cacheKey, next)
+      setError('')
+    } catch {
+      setError('Could not save this draft. Keep the page open until you create the customer.')
+    }
+  }
+
+  function cancel() {
+    saveIntakeForm(cacheKey, null)
+    navigate(draft ? intakePath(draft) : id ? '/customers/' + id : '/customers')
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
-    if (!form.firstName.trim() && !form.lastName.trim()) return
+    if (busy.current) return
+    const input = { ...form, firstName: form.firstName.trim(), lastName: form.lastName.trim(), company: form.company.trim() }
+    if (!input.firstName && !input.lastName && !input.company) {
+      setError('Enter a first name, last name or company name.')
+      return
+    }
+    busy.current = true
     setSaving(true)
-    if (editing && id) {
-      await customersRepo.update(id, form)
-      navigate(`/customers/${id}`)
-    } else {
-      const created = await customersRepo.create(form)
-      navigate(`/customers/${created.id}`)
+    try {
+      if (draft) requireDraft(draft)
+      if (id) {
+        await customersRepo.update(id, input)
+        navigate('/customers/' + id)
+      } else {
+        const created = await customersRepo.create(input)
+        navigate(afterRecordCreated(draft, cacheKey, { customerId: created.id, vehicleId: '' }, '/customers/' + created.id), { replace: true })
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save customer. Please try again.')
+    } finally {
+      busy.current = false
+      setSaving(false)
     }
   }
+
+  if (!loaded) return <p>Loading…</p>
+  if (unavailable) return <p role="alert">Customer unavailable for editing.</p>
 
   return (
     <div className="mx-auto max-w-xl">
@@ -55,7 +100,7 @@ export function CustomerForm() {
             <TextInput id="lastName" value={form.lastName} onChange={set('lastName')} />
           </Field>
         </div>
-        <Field label="Company (optional)" htmlFor="company">
+        <Field label="Company" htmlFor="company">
           <TextInput id="company" value={form.company} onChange={set('company')} />
         </Field>
         <div className="grid grid-cols-2 gap-3">
@@ -73,9 +118,10 @@ export function CustomerForm() {
           <TextArea id="notes" rows={3} value={form.notes} onChange={set('notes')} />
         </Field>
 
+        {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
         <div className="flex gap-3 pt-2">
           <Button type="submit" disabled={saving} full>{editing ? 'Save changes' : 'Create customer'}</Button>
-          <Button type="button" variant="secondary" onClick={() => navigate(-1)}>Cancel</Button>
+          <Button type="button" variant="secondary" disabled={saving} onClick={cancel}>Cancel</Button>
         </div>
       </form>
     </div>
