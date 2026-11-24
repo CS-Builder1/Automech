@@ -3,6 +3,7 @@ import type { AuthorizationRecord, EstimateSnapshot, LineItem, WorkOrder, WorkOr
 import { newId, nowISO } from '@/lib/id'
 import { approvalHistory, approvalIssue, estimateSnapshot, needsApproval, sameEstimate } from '@/lib/approval'
 import { computeTotals } from '@/lib/calc'
+import { displayPair } from '@/lib/money'
 
 export type NewWorkOrder = Omit<WorkOrder, 'id' | 'number' | 'createdAt' | 'updatedAt' | 'deletedAt'>
 
@@ -59,7 +60,7 @@ export const workOrdersRepo = {
       const counter = (settings.roCounter ?? 1000) + 1
       const ts = nowISO()
       const order: WorkOrder = {
-        ...input, status: 'estimate', currency: settings.currency, id: newId(), number: `RO-${counter}`,
+        ...input, ...displayPair(settings.currency, settings.displayCurrency, settings.pegRate), status: 'estimate', currency: settings.currency, id: newId(), number: `RO-${counter}`,
         authorizations: [], authorization: undefined, createdAt: ts, updatedAt: ts, deletedAt: null,
       }
       await db.workOrders.add(order)
@@ -112,7 +113,13 @@ export const workOrdersRepo = {
     return transaction(async () => {
       const order = await editable(id)
       const history = approvalHistory(order)
-      const snapshot = estimateSnapshot(order)
+      const customer = await db.customers.get(order.customerId)
+      const vehicle = await db.vehicles.get(order.vehicleId)
+      const snapshot = estimateSnapshot(order, customer, vehicle)
+      if ((displayed.customerLabel !== undefined && displayed.customerLabel !== snapshot.customerLabel) ||
+          (displayed.vehicleLabel !== undefined && (displayed.vehicleLabel !== snapshot.vehicleLabel || displayed.vehiclePlate !== snapshot.vehiclePlate))) {
+        throw new Error('The customer or vehicle details changed. Review the estimate again.')
+      }
       if (!sameEstimate(displayed, snapshot) || expectedRevision !== history.length) {
         throw new Error('This estimate changed. Close the approval and review the latest version.')
       }

@@ -85,7 +85,7 @@ export function Jobs() {
                     {vehicle && ` · ${[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ')}`}
                   </div>
                 </div>
-                <span className="ml-3 shrink-0 font-semibold tabular-nums">{money(total, wo.currency)}</span>
+                <span className="ml-3 shrink-0 font-semibold tabular-nums">{money(total, wo)}</span>
               </Link>
             </li>
           ))}

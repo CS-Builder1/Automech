@@ -14,19 +14,20 @@ before(async () => {
 })
 after(async () => { await browser?.close(); await server?.close() })
 
-async function newJob() {
+async function newJob(settings = {}) {
   const page = await browser.newPage()
   await page.goto(base)
-  const order = await page.evaluate(async () => {
+  const order = await page.evaluate(async defaults => {
     const { db, ensureSettings } = await import('/src/db/database.ts')
     const { workOrdersRepo } = await import('/src/repositories/workOrders.ts')
     await ensureSettings()
+    await db.settings.update('singleton',defaults)
     const date = new Date().toISOString()
     await db.customers.add({ id: 'c', firstName: 'Grace', lastName: 'Lee', createdAt: date, updatedAt: date })
-    await db.vehicles.add({ id: 'v', customerId: 'c', type: 'car', mileage: 200, createdAt: date, updatedAt: date })
+    await db.vehicles.add({ id: 'v', customerId: 'c', type: 'car', year:2021, make:'Ford', model:'Focus', licensePlate:'TEST-1', mileage: 200, createdAt: date, updatedAt: date })
     return workOrdersRepo.create({ customerId: 'c', vehicleId: 'v', status: 'estimate',
       lineItems: [{ id: 'labor', kind: 'labor', description: 'Brake check', quantity: 1, unitPrice: 10000, taxable: false }] })
-  })
+  },settings)
   await page.goto(new URL('jobs/' + order.id, base).href)
   await page.getByRole('heading', { name: order.number }).waitFor()
   return {page, order}
@@ -125,7 +126,7 @@ test('real v1 upgrade preserves signature, pins billing currency, and repairs ma
           for (const key of keys.split(' ').filter(Boolean)) store.createIndex(key,key)
         }
         const tx = request.transaction
-        tx.objectStore('settings').put({id:'singleton',currency:'XCD'})
+        tx.objectStore('settings').put({id:'singleton',currency:'XCD',displayCurrency:'USD',pegRate:0.37})
         const legacy = {number:'RO-1',customerId:'c',vehicleId:'v',lineItems:[],status:'invoiced',
           authorization:{authorizedBy:'Pat',method:'signature',signatureDataUrl:'historical ink',authorizedAt:'2024-01-01',amountAuthorized:900}}
         tx.objectStore('workOrders').put({...legacy,id:'manual'})
@@ -140,9 +141,9 @@ test('real v1 upgrade preserves signature, pins billing currency, and repairs ma
     const {db} = await import('/src/db/database.ts')
     const manual = await db.workOrders.get('manual')
     const issued = await db.workOrders.get('issued')
-    return [manual.currency,manual.status,issued.status,manual.authorizations[0].signatureDataUrl,manual.authorizations[0].snapshot ?? null]
+    return [manual.currency,manual.displayCurrency,manual.pegRate,manual.status,issued.status,manual.authorizations[0].signatureDataUrl,manual.authorizations[0].snapshot ?? null]
   })
-  assert.deepEqual(result,['XCD','completed','invoiced','historical ink',null])
+  assert.deepEqual(result,['XCD','USD',0.37,'completed','invoiced','historical ink',null])
   await page.close()
 })
 
@@ -205,5 +206,64 @@ test('an old editor cannot replay a note across a committed backup restore', asy
     return [old.status,(await db.workOrders.get(id)).diagnosis]
   },order.id)
   assert.deepEqual(result,['rejected','Restored diagnosis'])
+  await page.close()
+})
+
+test('a full browser draft journal still commits edits to IndexedDB', async () => {
+  const {page,order} = await newJob()
+  await page.evaluate(() => {
+    // Find the actual per-origin quota without replacing the Storage API.
+    let size = 1024 * 1024
+    let key = 0
+    while (size > 0) {
+      try { sessionStorage.setItem('fill' + key++, 'x'.repeat(size)) }
+      catch { size = Math.floor(size / 2) }
+    }
+  })
+  const errors = []
+  page.on('pageerror', error => errors.push(error.message))
+  await page.getByLabel('Diagnosis / notes').fill('Replacement bearing')
+  await page.waitForFunction(async id => {
+    const {db} = await import('/src/db/database.ts')
+    return (await db.workOrders.get(id)).diagnosis === 'Replacement bearing'
+  },order.id,{timeout:3000})
+  assert.equal(await page.evaluate(async id => {
+    const {db} = await import('/src/db/database.ts')
+    return (await db.workOrders.get(id)).diagnosis
+  },order.id),'Replacement bearing')
+  assert.deepEqual(errors,[])
+  await page.close()
+})
+
+test('approval identifies the vehicle and preserves the quoted exchange rate', async () => {
+  const {page,order} = await newJob({displayCurrency:'XCD',pegRate:2.7})
+  await page.getByRole('button',{name:'Capture approval'}).click()
+  const sheet = page.getByRole('dialog')
+  assert.match(await sheet.innerText(), /2021 Ford Focus/)
+  assert.match(await sheet.innerText(), /TEST-1/)
+  assert.match(await sheet.innerText(), /270.00/)
+  await sheet.getByLabel('How was it authorized?').selectOption('phone')
+  await sheet.getByRole('button',{name:'Record approval'}).click()
+  await sheet.waitFor({state:'hidden'})
+  await page.evaluate(async () => {
+    const {db} = await import('/src/db/database.ts')
+    await db.settings.update('singleton',{displayCurrency:'EUR',pegRate:0.9})
+    await db.vehicles.update('v',{licensePlate:'NEW'})
+    await db.customers.update('c',{lastName:'Jones'})
+  })
+  await page.reload()
+  const details = page.locator('details').first()
+  await details.waitFor()
+  const text = await details.innerText()
+  assert.match(text,/Grace Lee/)
+  assert.match(text,/TEST-1/)
+  assert.match(text,/270.00/)
+  assert.doesNotMatch(text,/Jones|NEW|€90/)
+  const stored = await page.evaluate(async id => {
+    const {db} = await import('/src/db/database.ts')
+    const {snapshot} = (await db.workOrders.get(id)).authorization
+    return [snapshot.currency,snapshot.displayCurrency,snapshot.pegRate]
+  },order.id)
+  assert.deepEqual(stored,['USD','XCD',2.7])
   await page.close()
 })

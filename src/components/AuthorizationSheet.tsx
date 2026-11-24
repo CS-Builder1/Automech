@@ -16,9 +16,12 @@ const METHODS: { value: AuthMethod; label: string }[] = [
 
 export function EstimateSummary({ snapshot }: { snapshot: EstimateSnapshot }) {
   const totals = computeTotals(snapshot)
-  const money = (amount: number) => formatMoney(amount, { currency: snapshot.currency })
+  const money = (amount: number) => formatMoney(amount, snapshot)
   return (
     <div className="space-y-2 rounded-xl border border-slate-300 p-3 text-sm dark:border-slate-600">
+      {snapshot.customerLabel && <p>Customer · {snapshot.customerLabel}</p>}
+      {snapshot.vehicleLabel && <p>Vehicle · {snapshot.vehicleLabel}{snapshot.vehiclePlate && ` · Plate ${snapshot.vehiclePlate}`}</p>}
+      {snapshot.displayCurrency && snapshot.pegRate && <p>1 {snapshot.currency} = {snapshot.pegRate} {snapshot.displayCurrency}</p>}
       <ul className="divide-y divide-slate-200 dark:divide-slate-700">
         {snapshot.lineItems.map(line => (
           <li key={line.id} className="flex justify-between gap-2 py-1.5">
