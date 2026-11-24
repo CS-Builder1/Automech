@@ -19,7 +19,7 @@ export interface DocumentView {
 
 export function invoiceDocument(i: Invoice): DocumentView {
   const currency = i.currency ?? 'USD'
-  const money = (value: number) => formatMoney(value, { currency })
+  const money = (value: number) => formatMoney(value, { currency, displayCurrency: i.displayCurrency, pegRate: i.pegRate })
   return {
     number: i.number, title: 'Invoice', shop: i.shopName ?? 'Shop', shopContact: i.shopContact,
     customer: i.customerName, customerContact: i.customerContact, terms: i.warrantyTerms,
@@ -33,7 +33,7 @@ export function invoiceDocument(i: Invoice): DocumentView {
 
 export function receiptDocument(p: Payment, i?: Invoice): DocumentView {
   const currency = p.currency ?? i?.currency ?? 'USD'
-  const money = (value: number) => formatMoney(value, { currency })
+  const money = (value: number) => formatMoney(value, { currency, displayCurrency: p.displayCurrency, pegRate: p.pegRate })
   const title = p.reversesPaymentId ? 'Refund receipt' : p.isDeposit ? 'Deposit receipt' : 'Payment receipt'
   const totals: [string, string][] = [[p.reversesPaymentId ? 'Returned' : 'Received', money(p.amount)]]
   if (p.balanceAfter !== undefined) totals.push(['Balance after this receipt', money(p.balanceAfter)])

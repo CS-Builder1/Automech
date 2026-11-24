@@ -155,6 +155,8 @@ export interface Invoice {
   vehicleId: ID
   lineItems: LineItem[]
   currency?: string
+  displayCurrency?: string
+  pegRate?: number
   shopName?: string
   shopContact?: string
   customerName?: string
@@ -182,6 +184,8 @@ export interface Payment {
   workOrderId?: ID
   number?: string
   currency?: string
+  displayCurrency?: string
+  pegRate?: number
   balanceAfter?: number
   shopName?: string
   customerName?: string

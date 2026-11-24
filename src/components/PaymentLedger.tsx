@@ -96,7 +96,7 @@ export function PaymentLedger({ payments, invoice }: { payments: Payment[]; invo
             onClick={() => { setSelected(selected === p.id ? '' : p.id); setRefund(''); setError('') }}>
             <span><strong>{doc.number}</strong> · {interactive ? doc.title : p.status}<br/>
               <small>{p.recordedDate ?? new Date(p.createdAt).toLocaleDateString()} · {tenderLabel(p.method)}</small></span>
-            <span className="font-semibold tabular-nums">{formatMoney(p.amount, {currency: p.currency ?? invoice?.currency ?? 'USD'})}</span>
+            <span className="font-semibold tabular-nums">{formatMoney(p.amount, {currency: p.currency ?? invoice?.currency ?? 'USD', displayCurrency: p.displayCurrency, pegRate: p.pegRate})}</span>
           </button>
           {selected === p.id && <div className="mt-2 space-y-3">
             {p.reference && <p className="text-sm">Reference {p.reference}</p>}

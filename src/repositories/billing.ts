@@ -35,6 +35,10 @@ async function nextNumber(settings: ShopSettings, key: 'invoiceCounter' | 'recei
   return prefix + count
 }
 
+function documentCurrency(source: Pick<Invoice, 'currency' | 'displayCurrency' | 'pegRate'> | undefined, fallback: string) {
+  return { currency: source?.currency ?? fallback, displayCurrency: source?.displayCurrency, pegRate: source?.pegRate }
+}
+
 export async function jobBillingParties(order: WorkOrder) {
   const [customer, vehicle] = await Promise.all([db.customers.get(order.customerId), db.vehicles.get(order.vehicleId)])
   const active = Boolean(!order.deletedAt && customer && !customer.deletedAt && vehicle && !vehicle.deletedAt && vehicle.customerId === order.customerId)
@@ -63,7 +67,7 @@ export async function issueInvoice(workOrderId: string, terms = '', dueDate = ''
     if (amountPaid > totals.total) throw new Error('Return the excess deposit before issuing this invoice.')
     const timestamp = nowISO()
     const invoice: Invoice = {
-      id: newId(), number: await nextNumber(settings, 'invoiceCounter'), currency,
+      id: newId(), number: await nextNumber(settings, 'invoiceCounter'), ...documentCurrency(order, currency),
       workOrderId, workOrderNumber: order.number, customerId: order.customerId, vehicleId: order.vehicleId,
       customerName: [customer?.firstName, customer?.lastName].filter(Boolean).join(' ') || customer?.company || 'Customer',
       customerContact: [(customer?.firstName || customer?.lastName) && customer?.company, customer?.address, customer?.phone, customer?.email].filter(Boolean).join(' · '),
@@ -129,7 +133,7 @@ export async function recordPayment(input: PaymentInput): Promise<Payment> {
     const receipt: Payment = {
       id: input.requestId, number: await nextNumber(settings, 'receiptCounter'), workOrderId, invoiceId: invoice?.id ?? '',
       method: input.method, amount: input.amount, isDeposit: Boolean(input.isDeposit), status: 'paid',
-      currency: invoice?.currency ?? order?.currency ?? settings.currency, shopName: invoice?.shopName ?? settings.shopName,
+      ...documentCurrency(invoice ?? order, settings.currency), shopName: invoice?.shopName ?? settings.shopName,
       customerName: invoice?.customerName || [customer?.firstName, customer?.lastName].filter(Boolean).join(' ') || customer?.company || 'Customer',
       documentNumber: invoice?.number ?? order?.number, reference: input.reference?.trim() || undefined,
       balanceAfter, createdAt, recordedDate: localDate(createdAt),
