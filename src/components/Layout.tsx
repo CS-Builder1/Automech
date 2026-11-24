@@ -49,7 +49,7 @@ export function Layout() {
         </nav>
       </aside>
 
-      <div className="flex min-h-full flex-1 flex-col">
+      <div className="flex min-h-full min-w-0 flex-1 flex-col">
         {/* Mobile top bar */}
         <header className="flex items-center justify-between border-b border-slate-200 px-4 py-3 md:hidden dark:border-slate-800">
           <Brand />
