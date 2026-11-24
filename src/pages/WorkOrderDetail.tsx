@@ -11,6 +11,7 @@ import { STATUS_META, STATUS_ORDER } from '@/lib/status'
 import { PageHeader } from '@/components/ui/Page'
 import { Button } from '@/components/ui/Button'
 import { LineItemEditor } from '@/components/LineItemEditor'
+import { JobPlanning } from '@/components/operations/JobPlanning'
 import { AuthorizationSheet } from '@/components/AuthorizationSheet'
 
 export function WorkOrderDetail() {
@@ -112,6 +113,8 @@ export function WorkOrderDetail() {
           )}
         </div>
       </div>
+
+      <JobPlanning key={wo.id} job={wo} />
 
       {/* Complaint / diagnosis */}
       <div className="card mb-4 space-y-3 p-4">

@@ -50,6 +50,7 @@ export interface Customer {
   email?: string
   address?: string
   notes?: string
+  followUps?: Record<ID, { outcome: string; contactedAt: ISODate }>
   taxExempt?: boolean
   /** Optional per-customer overrides (research §2). */
   laborRateOverride?: number // minor units / hour
@@ -87,6 +88,7 @@ export interface LineItem {
   // Parts
   partNumber?: string
   partStatus?: PartStatus
+  expectedAt?: string // Local calendar date for part delivery
   supplier?: string
   unitCost?: number   // minor units (what the shop pays)
   // Labor
@@ -124,6 +126,7 @@ export interface WorkOrder {
   shopSuppliesPct?: number  // shop-supply fee as % of labor+parts
   taxRatePct?: number
   notes?: string
+  technician?: string
   promisedAt?: ISODate | null
   createdAt: ISODate
   updatedAt: ISODate
@@ -197,6 +200,7 @@ export interface Appointment {
   customerId?: ID
   vehicleId?: ID
   workOrderId?: ID
+  bay?: string
   title: string
   startAt: ISODate
   endAt?: ISODate | null
