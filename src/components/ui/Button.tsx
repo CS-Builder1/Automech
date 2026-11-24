@@ -27,7 +27,7 @@ interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
 export function Button({ variant = 'primary', size = 'md', full, className = '', children, ...rest }: Props) {
   return (
     <button
-      className={`inline-flex items-center justify-center gap-2 rounded-xl font-semibold
+      className={`inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-xl font-semibold
         transition-colors disabled:cursor-not-allowed disabled:opacity-60
         ${variants[variant]} ${sizes[size]} ${full ? 'w-full' : ''} ${className}`}
       {...rest}

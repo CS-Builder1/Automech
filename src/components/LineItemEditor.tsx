@@ -79,7 +79,7 @@ export function LineItemEditor({ open, initial, defaultLaborRate, defaultMarkupP
 
         <Field label="Description" htmlFor="desc">
           <TextInput id="desc" value={description} onChange={(e) => setDescription(e.target.value)}
-            placeholder={isLabor ? 'e.g. Front brake pads & rotors' : isPart ? 'e.g. Brake pad set' : 'Description'} autoFocus />
+            placeholder={isLabor ? 'e.g. Front brake pads & rotors' : isPart ? 'e.g. Brake pad set' : 'Description'} data-initial-focus />
         </Field>
 
         {isPart && (
