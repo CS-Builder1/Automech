@@ -1,8 +1,9 @@
 import Dexie, { type Table } from 'dexie'
+import { localDate } from '@/lib/businessDate'
 import { normalizeLegacyOrder } from '@/lib/approval'
 import type {
   Customer, Vehicle, WorkOrder, Invoice, Payment,
-  Inspection, MediaAsset, Appointment, ShopSettings,
+  Inspection, MediaAsset, Appointment, ShopSettings, Expense,
 } from './types'
 
 /**
@@ -15,6 +16,7 @@ export class AutomechDB extends Dexie {
   workOrders!: Table<WorkOrder, string>
   invoices!: Table<Invoice, string>
   payments!: Table<Payment, string>
+  expenses!: Table<Expense, string>
   inspections!: Table<Inspection, string>
   media!: Table<MediaAsset, string>
   appointments!: Table<Appointment, string>
@@ -39,6 +41,26 @@ export class AutomechDB extends Dexie {
       await tx.table<WorkOrder>('workOrders').toCollection().modify((order) => {
         Object.assign(order, normalizeLegacyOrder(order, settings?.currency ?? 'USD'))
         if (order.status === 'invoiced' && !invoiced.has(order.id)) order.status = 'completed'
+      })
+    })
+    this.version(3).stores({
+      payments: 'id, number, invoiceId, workOrderId, method, status, createdAt',
+      expenses: 'id, date, createdAt',
+    }).upgrade(async (tx) => {
+      // Earlier builds had financial tables, without a currency on the documents.
+      const settings = await tx.table('settings').get('singleton')
+      const currency = settings?.currency || 'USD'
+      const invoices = new Map<string, Invoice>()
+      await tx.table<Invoice>('invoices').toCollection().modify((invoice) => {
+        invoice.currency ??= currency
+        invoice.issuedDate ??= localDate(invoice.issuedAt)
+        invoices.set(invoice.id, invoice)
+      })
+      await tx.table<Payment>('payments').toCollection().modify((payment) => {
+        const invoice = invoices.get(payment.invoiceId)
+        payment.currency ??= invoice?.currency ?? currency
+        payment.workOrderId ??= invoice?.workOrderId
+        payment.recordedDate ??= localDate(payment.createdAt)
       })
     })
   }

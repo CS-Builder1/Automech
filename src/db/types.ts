@@ -157,12 +157,20 @@ export interface Invoice {
   customerId: ID
   vehicleId: ID
   lineItems: LineItem[]
+  currency?: string
+  shopName?: string
+  shopContact?: string
+  customerName?: string
+  customerContact?: string
+  vehicleLabel?: string
+  workOrderNumber?: string
   subtotal: number
   shopSupplies: number
   tax: number
   total: number
   amountPaid: number
   warrantyTerms?: string
+  issuedDate?: string
   issuedAt: ISODate
   dueAt?: ISODate | null
   createdAt: ISODate
@@ -172,13 +180,34 @@ export interface Invoice {
 
 export interface Payment {
   id: ID
+  /** Empty until a job deposit is applied to its invoice. */
   invoiceId: ID
+  workOrderId?: ID
+  number?: string
+  currency?: string
+  balanceAfter?: number
+  shopName?: string
+  customerName?: string
+  documentNumber?: string
+  recordedDate?: string
+  reversesPaymentId?: ID
   method: PaymentMethod
   status: PaymentStatus
   amount: number            // minor units
   isDeposit?: boolean
   reference?: string        // external txn id / cheque no.
   note?: string
+  createdAt: ISODate
+}
+
+export interface Expense {
+  id: ID
+  date: string
+  description: string
+  category: string
+  amount: number
+  currency: string
+  method: PaymentMethod
   createdAt: ISODate
 }
 
@@ -245,6 +274,7 @@ export interface ShopSettings {
   defaultTaxRatePct: number
   shopSuppliesPct: number
   roCounter: number
+  receiptCounter?: number
   invoiceCounter: number
   updatedAt: ISODate
 }
