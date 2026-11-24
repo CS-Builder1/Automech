@@ -1,0 +1,209 @@
+import { after, before, test } from 'node:test'
+import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
+import { chromium } from 'playwright-core'
+import { createServer } from 'vite'
+
+let server, browser, base
+before(async () => {
+  server = await createServer({ server: { host: '127.0.0.1', port: 0 }, logLevel: 'error' })
+  await server.listen()
+  base = server.resolvedUrls.local[0]
+  const chrome = process.env.CHROMIUM_PATH || (existsSync('/usr/bin/chromium') ? '/usr/bin/chromium' : undefined)
+  browser = await chromium.launch({ executablePath: chrome })
+})
+after(async () => { await browser?.close(); await server?.close() })
+
+async function newJob() {
+  const page = await browser.newPage()
+  await page.goto(base)
+  const order = await page.evaluate(async () => {
+    const { db, ensureSettings } = await import('/src/db/database.ts')
+    const { workOrdersRepo } = await import('/src/repositories/workOrders.ts')
+    await ensureSettings()
+    const date = new Date().toISOString()
+    await db.customers.add({ id: 'c', firstName: 'Grace', lastName: 'Lee', createdAt: date, updatedAt: date })
+    await db.vehicles.add({ id: 'v', customerId: 'c', type: 'car', mileage: 200, createdAt: date, updatedAt: date })
+    return workOrdersRepo.create({ customerId: 'c', vehicleId: 'v', status: 'estimate',
+      lineItems: [{ id: 'labor', kind: 'labor', description: 'Brake check', quantity: 1, unitPrice: 10000, taxable: false }] })
+  })
+  await page.goto(new URL('jobs/' + order.id, base).href)
+  await page.getByRole('heading', { name: order.number }).waitFor()
+  return {page, order}
+}
+
+test('a price uses one decimal separator and rejects ambiguous prices', async () => {
+  const {page} = await newJob()
+  const result = await page.evaluate(async () => {
+    const {parseAmountToMinor} = await import('/src/lib/money.ts')
+    return ['12,50', '12.50', '1,250', '1.2.3', 'wrong', '0'].map(value => {
+      try { return parseAmountToMinor(value) } catch { return null }
+    })
+  })
+  assert.deepEqual(result, [1250,1250,null,null,null,0])
+  await page.close()
+})
+
+test('signed revisions retain scope, currency and separate ink; signed work controls completion', async () => {
+  const {page, order} = await newJob()
+  await page.getByRole('button',{name:'Capture approval'}).click()
+  const sheet = page.getByRole('dialog')
+  assert.match(await sheet.innerText(), /Brake check/)
+  assert.match(await sheet.innerText(), /USD/)
+  await sheet.getByLabel('How was it authorized?').selectOption('signature')
+  assert.equal(await sheet.getByRole('button',{name:'Record approval'}).isDisabled(), true)
+  const box = await sheet.locator('canvas').boundingBox()
+  await page.mouse.move(box.x+10,box.y+10); await page.mouse.down()
+  await page.mouse.move(box.x+30,box.y+30,{steps:4}); await page.mouse.up()
+  await sheet.getByRole('button',{name:'Record approval'}).click()
+  await sheet.waitFor({state:'hidden'})
+  await page.evaluate(async id => {
+    const {db} = await import('/src/db/database.ts')
+    const w = await db.workOrders.get(id)
+    await db.workOrders.update(id, {lineItems: w.lineItems.map(li=>({...li,description:'Different repair'}))})
+    await db.settings.update('singleton', {currency:'EUR'})
+  },order.id)
+  await page.getByText(/Re-approval required/).first().waitFor()
+  const guarded = await page.evaluate(async id => {
+    const {workOrdersRepo} = await import('/src/repositories/workOrders.ts')
+    try { await workOrdersRepo.setStatus(id, 'completed'); return false } catch { return true }
+  },order.id)
+  assert.equal(guarded,true)
+  await page.getByRole('button',{name:'Update',exact:true}).click()
+  assert.equal(await sheet.getByRole('button',{name:'Record approval'}).isDisabled(),true)
+  await sheet.getByLabel('How was it authorized?').selectOption('phone')
+  await sheet.getByRole('button',{name:'Record approval'}).click()
+  await sheet.waitFor({state:'hidden'})
+  const history = await page.evaluate(async id => {
+    const {db} = await import('/src/db/database.ts')
+    const w = await db.workOrders.get(id)
+    return w.authorizations.map(a=>[a.revision,a.currency,a.snapshot.lineItems[0].description,Boolean(a.signatureDataUrl)])
+  },order.id)
+  assert.deepEqual(history,[[1,'USD','Brake check',true],[2,'USD','Different repair',false]])
+  await page.close()
+})
+
+test('typed diagnosis survives a reload and missing work orders show their empty state', async () => {
+  const {page} = await newJob()
+  await page.getByLabel('Diagnosis / notes').fill('Replace wheel bearing')
+  await page.reload()
+  await page.getByLabel('Diagnosis / notes').waitFor()
+  assert.equal(await page.getByLabel('Diagnosis / notes').inputValue(),'Replace wheel bearing')
+  await page.goto(new URL('jobs/missing',base).href)
+  await page.getByText('Job not found.').waitFor({timeout:3000})
+  await page.close()
+})
+
+test('labor direct cost uses actual hours, independent of billed hours', async () => {
+  const {page} = await newJob()
+  const totals = await page.evaluate(async () => {
+    const {computeTotals,checkAuthorization} = await import('/src/lib/calc.ts')
+    const computed = computeTotals({lineItems:[{kind:'labor',quantity:1.5,unitPrice:10000,actualHours:2,hourlyCost:2500}]})
+    return [computed.total,computed.laborCost,computed.grossProfit,checkAuthorization(1,0).needsReauth]
+  })
+  assert.deepEqual(totals,[15000,5000,10000,true])
+  await page.close()
+})
+
+test('real v1 upgrade preserves signature, pins billing currency, and repairs manually invoiced jobs', async () => {
+  const page = await browser.newPage()
+  // A resource with no app script opens this origin before v2 can create its database.
+  await page.goto(new URL('favicon.svg', base).href)
+  await page.evaluate(async () => {
+    await new Promise((resolve,reject) => {
+      const request = indexedDB.open('automech', 10)
+      request.onupgradeneeded = () => {
+        const db = request.result
+        const schemas = {
+          customers:'lastName firstName phone email updatedAt deletedAt', vehicles:'customerId vin licensePlate make model updatedAt deletedAt',
+          workOrders:'number customerId vehicleId status updatedAt deletedAt', invoices:'number workOrderId customerId issuedAt updatedAt deletedAt',
+          payments:'invoiceId method status createdAt', inspections:'workOrderId vehicleId customerId updatedAt deletedAt', media:'createdAt',
+          appointments:'customerId vehicleId workOrderId startAt updatedAt deletedAt', settings:'',
+        }
+        for (const [table,keys] of Object.entries(schemas)) {
+          const store = db.createObjectStore(table, {keyPath:'id'})
+          for (const key of keys.split(' ').filter(Boolean)) store.createIndex(key,key)
+        }
+        const tx = request.transaction
+        tx.objectStore('settings').put({id:'singleton',currency:'XCD'})
+        const legacy = {number:'RO-1',customerId:'c',vehicleId:'v',lineItems:[],status:'invoiced',
+          authorization:{authorizedBy:'Pat',method:'signature',signatureDataUrl:'historical ink',authorizedAt:'2024-01-01',amountAuthorized:900}}
+        tx.objectStore('workOrders').put({...legacy,id:'manual'})
+        tx.objectStore('workOrders').put({...legacy,id:'issued'})
+        tx.objectStore('invoices').put({id:'inv',workOrderId:'issued'})
+      }
+      request.onsuccess = () => {request.result.close(); resolve()}
+      request.onerror = () => reject(request.error)
+    })
+  })
+  const result = await page.evaluate(async () => {
+    const {db} = await import('/src/db/database.ts')
+    const manual = await db.workOrders.get('manual')
+    const issued = await db.workOrders.get('issued')
+    return [manual.currency,manual.status,issued.status,manual.authorizations[0].signatureDataUrl,manual.authorizations[0].snapshot ?? null]
+  })
+  assert.deepEqual(result,['XCD','completed','invoiced','historical ink',null])
+  await page.close()
+})
+
+test('concurrent changes stay atomic and completed mileage advances without reducing vehicle odometer', async () => {
+  const {page,order} = await newJob()
+  const result = await page.evaluate(async id => {
+    const {workOrdersRepo: repo} = await import('/src/repositories/workOrders.ts')
+    const {db} = await import('/src/db/database.ts')
+    const {estimateSnapshot} = await import('/src/lib/approval.ts')
+    const w = await repo.get(id)
+    const results = await Promise.allSettled([1,2].map(()=>repo.recordApproval(id,{authorizedBy:'Pat',method:'phone'},estimateSnapshot(w),0)))
+    const oldLine = w.lineItems[0]
+    const changed = {...oldLine,description:'Replace brakes'}
+    await repo.changeLine(id,'save',changed,oldLine)
+    const stale = await Promise.allSettled([
+      repo.changeLine(id,'remove',oldLine,oldLine),
+      repo.recordApproval(id,{authorizedBy:'Pat',method:'phone'},estimateSnapshot(w),1),
+      repo.setStatus(id,'completed'), repo.setStatus(id,'invoiced'),
+    ])
+    const latest = await repo.get(id)
+    await repo.recordApproval(id,{authorizedBy:'Pat',method:'phone'},estimateSnapshot(latest),1)
+    await repo.update(id,{mileageOut:300})
+    await repo.setStatus(id,'completed')
+    const mileage = (await db.vehicles.get('v')).mileage
+    await repo.setStatus(id,'in_progress')
+    await repo.update(id,{mileageOut:210})
+    await repo.setStatus(id,'completed')
+    await db.customers.update('c',{deletedAt:new Date().toISOString()})
+    const archivedEdit = await Promise.allSettled([repo.setStatus(id,'estimate')])
+    return [results.map(r=>r.status).sort(),stale.map(r=>r.status),latest.status,mileage,
+      (await db.vehicles.get('v')).mileage,archivedEdit[0].status]
+  },order.id)
+  assert.deepEqual(result,[['fulfilled','rejected'],Array(4).fill('rejected'),'awaiting_approval',300,300,'rejected'])
+  await page.close()
+})
+
+test('the line editor prices a new part independently and accepts actual hours without costing them', async () => {
+  const {page} = await newJob()
+  await page.getByRole('button',{name:'+ Add',exact:true}).click()
+  const sheet = page.getByRole('dialog')
+  await sheet.getByLabel('Type', {exact:true}).selectOption('part')
+  assert.equal(await sheet.getByLabel('Price each').inputValue(),'')
+  await sheet.getByLabel('Type', {exact:true}).selectOption('labor')
+  await sheet.getByLabel('Description').fill('Service A')
+  await sheet.getByLabel('Actual hours (optional)').fill('1.75')
+  await sheet.getByRole('button',{name:'Add',exact:true}).click()
+  await sheet.waitFor({state:'hidden',timeout:2500})
+  await page.getByText(/1.75 actual hr/).waitFor()
+  await page.close()
+})
+
+test('an old editor cannot replay a note across a committed backup restore', async () => {
+  const {page,order} = await newJob()
+  const result = await page.evaluate(async id => {
+    const {db} = await import('/src/db/database.ts')
+    const {workOrdersRepo} = await import('/src/repositories/workOrders.ts')
+    await db.settings.update('singleton', {restoreEpoch:'restored'})
+    await db.workOrders.update(id,{diagnosis:'Restored diagnosis'})
+    const [old] = await Promise.allSettled([workOrdersRepo.update(id,{diagnosis:'Old draft'},'initial')])
+    return [old.status,(await db.workOrders.get(id)).diagnosis]
+  },order.id)
+  assert.deepEqual(result,['rejected','Restored diagnosis'])
+  await page.close()
+})

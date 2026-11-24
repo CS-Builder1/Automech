@@ -13,7 +13,8 @@ export interface Totals {
   tax: number
   total: number
   partsCost: number   // what the shop pays for parts (margin insight)
-  grossProfit: number // total (ex-tax) minus parts cost
+  laborCost: number
+  grossProfit: number // ex-tax revenue less recorded direct costs
 }
 
 /** Compute an RO/invoice breakdown from its line items + its tax/supply rates. */
@@ -38,9 +39,11 @@ export function computeTotals(input: {
   const partsCost = items
     .filter((li) => li.kind === 'part' || li.kind === 'sublet')
     .reduce((sum, li) => sum + Math.round((li.quantity || 0) * (li.unitCost || 0)), 0)
-  const grossProfit = itemsSubtotal + shopSupplies - partsCost
+  const laborCost = items.filter((li) => li.kind === 'labor')
+    .reduce((sum, li) => sum + Math.round((li.actualHours ?? 0) * (li.hourlyCost ?? 0)), 0)
+  const grossProfit = itemsSubtotal + shopSupplies - partsCost - laborCost
 
-  return { itemsSubtotal, shopSupplies, taxable, tax, total, partsCost, grossProfit }
+  return { itemsSubtotal, shopSupplies, taxable, tax, total, partsCost, laborCost, grossProfit }
 }
 
 export interface AuthCheck {
@@ -57,14 +60,14 @@ export interface AuthCheck {
  * bill exceeds the approved estimate (commonly by >10%). Surface that automatically.
  */
 export function checkAuthorization(total: number, amountAuthorized?: number): AuthCheck {
-  if (!amountAuthorized || amountAuthorized <= 0) {
+  if (amountAuthorized === undefined) {
     return { exceeds: false, needsReauth: false, overBy: 0, overPct: 0 }
   }
   const overBy = total - amountAuthorized
-  const overPct = (overBy / amountAuthorized) * 100
+  const overPct = amountAuthorized > 0 ? (overBy / amountAuthorized) * 100 : 0
   return {
     exceeds: overBy > 0,
-    needsReauth: overPct > 10,
+    needsReauth: overBy > 0 && (amountAuthorized <= 0 || overPct > 10),
     overBy,
     overPct,
   }

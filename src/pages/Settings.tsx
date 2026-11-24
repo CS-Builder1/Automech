@@ -14,6 +14,7 @@ export function Settings() {
     currency: 'USD', displayCurrency: '', pegRate: '',
     defaultLaborRate: '', defaultTaxRatePct: '', defaultPartsMarkupPct: '', shopSuppliesPct: '',
   })
+  const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
 
   useEffect(() => {
@@ -35,6 +36,10 @@ export function Settings() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
+    setError('')
+    let laborRate: number
+    try { laborRate = parseAmountToMinor(form.defaultLaborRate) }
+    catch (cause) { setError('Labor rate: ' + (cause as Error).message); return }
     await saveSettings({
       shopName: form.shopName.trim() || 'My Shop',
       ownerName: form.ownerName.trim() || undefined,
@@ -44,7 +49,7 @@ export function Settings() {
       currency: form.currency,
       displayCurrency: form.displayCurrency || undefined,
       pegRate: form.pegRate ? parseFloat(form.pegRate) : undefined,
-      defaultLaborRate: parseAmountToMinor(form.defaultLaborRate),
+      defaultLaborRate: laborRate,
       defaultTaxRatePct: parseFloat(form.defaultTaxRatePct) || 0,
       defaultPartsMarkupPct: parseFloat(form.defaultPartsMarkupPct) || 0,
       shopSuppliesPct: parseFloat(form.shopSuppliesPct) || 0,
@@ -120,6 +125,7 @@ export function Settings() {
           </div>
         </section>
 
+        {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
         <div className="flex items-center gap-3">
           <Button type="submit">Save settings</Button>
           {saved && <span className="text-sm font-medium text-emerald-600">Saved ✓</span>}

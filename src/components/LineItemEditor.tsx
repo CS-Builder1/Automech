@@ -23,8 +23,8 @@ interface Props {
   defaultMarkupPct: number
   defaultTaxRatePct: number
   onClose: () => void
-  onSave: (item: LineItem) => void
-  onDelete?: () => void
+  onSave: (item: LineItem) => Promise<void>
+  onDelete?: () => Promise<void>
 }
 
 export function LineItemEditor({ open, initial, defaultLaborRate, defaultMarkupPct, defaultTaxRatePct, onClose, onSave, onDelete }: Props) {
@@ -33,7 +33,11 @@ export function LineItemEditor({ open, initial, defaultLaborRate, defaultMarkupP
   const [partNumber, setPartNumber] = useState(initial?.partNumber ?? '')
   const [supplier, setSupplier] = useState(initial?.supplier ?? '')
   const [partStatus, setPartStatus] = useState<PartStatus>(initial?.partStatus ?? 'needed')
-  const [hours, setHours] = useState(initial?.hours?.toString() ?? '1')
+  const [hours, setHours] = useState((initial?.hours ?? initial?.quantity ?? 1).toString())
+  const [actualHours, setActualHours] = useState(initial?.actualHours?.toString() ?? '')
+  const [hourlyCost, setHourlyCost] = useState(initial?.hourlyCost === undefined ? '' : minorToDecimal(initial.hourlyCost).toString())
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
   const [quantity, setQuantity] = useState(initial?.quantity?.toString() ?? '1')
   const [unitCost, setUnitCost] = useState(initial?.unitCost ? minorToDecimal(initial.unitCost).toString() : '')
   const [unitPrice, setUnitPrice] = useState(
@@ -44,35 +48,53 @@ export function LineItemEditor({ open, initial, defaultLaborRate, defaultMarkupP
   const isLabor = kind === 'labor'
   const isPart = kind === 'part'
 
+  function changeKind(next: LineItemKind) {
+    setKind(next)
+    if (next === 'labor' || kind === 'labor') setUnitPrice(next === 'labor' ? minorToDecimal(defaultLaborRate).toString() : '')
+    setError('')
+  }
+
   function applyMarkup() {
-    const cost = parseAmountToMinor(unitCost)
-    const priced = Math.round(cost * (1 + defaultMarkupPct / 100))
-    setUnitPrice(minorToDecimal(priced).toString())
+    try {
+      const priced = Math.round(parseAmountToMinor(unitCost) * (1 + defaultMarkupPct / 100))
+      setUnitPrice(minorToDecimal(priced).toString())
+      setError('')
+    } catch (cause) { setError((cause as Error).message) }
   }
 
-  function save() {
-    const qty = isLabor ? parseFloat(hours || '0') : parseFloat(quantity || '1')
-    const item: LineItem = {
-      id: initial?.id ?? newId(),
-      kind,
-      description: description.trim() || KINDS.find((k) => k.value === kind)!.label,
-      quantity: Number.isFinite(qty) ? qty : 0,
-      unitPrice: parseAmountToMinor(unitPrice),
-      hours: isLabor ? (Number.isFinite(qty) ? qty : 0) : undefined,
-      partNumber: isPart ? partNumber.trim() || undefined : undefined,
-      supplier: isPart ? supplier.trim() || undefined : undefined,
-      partStatus: isPart ? partStatus : undefined,
-      unitCost: (isPart || kind === 'sublet') && unitCost ? parseAmountToMinor(unitCost) : undefined,
-      taxable: kind === 'discount' ? false : taxable,
-    }
-    onSave(item)
+  async function save() {
+    try {
+      setError('')
+      if (!description.trim()) throw new Error('Describe the work or item.')
+      const qty = parseQuantity(isLabor ? hours : quantity)
+      if (qty <= 0) throw new Error('Billed hours or quantity must be greater than zero.')
+      if (isLabor && hourlyCost && !actualHours) {
+        throw new Error('Enter actual hours to calculate direct labor cost.')
+      }
+      const item: LineItem = {
+        id: initial?.id ?? newId(), kind, description: description.trim(), quantity: qty,
+        unitPrice: parseAmountToMinor(unitPrice),
+        hours: isLabor ? qty : undefined,
+        actualHours: isLabor && actualHours ? parseQuantity(actualHours) : undefined,
+        hourlyCost: isLabor && hourlyCost ? parseAmountToMinor(hourlyCost) : undefined,
+        partNumber: isPart ? partNumber.trim() || undefined : undefined,
+        supplier: isPart ? supplier.trim() || undefined : undefined,
+        expectedAt: isPart ? initial?.expectedAt : undefined,
+        partStatus: isPart ? partStatus : undefined,
+        unitCost: (isPart || kind === 'sublet') && unitCost ? parseAmountToMinor(unitCost) : undefined,
+        taxable: kind === 'discount' ? false : taxable,
+      }
+      if (!Number.isSafeInteger(Math.round(item.quantity * item.unitPrice))) throw new Error('Line total is too large.')
+      setSaving(true)
+      await onSave(item)
+    } catch (cause) { setError((cause as Error).message) }
+    finally { setSaving(false) }
   }
-
   return (
     <Sheet open={open} onClose={onClose} title={initial ? 'Edit line item' : 'Add line item'}>
       <div className="space-y-4">
         <Field label="Type" htmlFor="kind">
-          <select id="kind" className="input" value={kind} onChange={(e) => setKind(e.target.value as LineItemKind)}>
+          <select id="kind" className="input" value={kind} onChange={(e) => changeKind(e.target.value as LineItemKind)}>
             {KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
           </select>
         </Field>
@@ -102,7 +124,7 @@ export function LineItemEditor({ open, initial, defaultLaborRate, defaultMarkupP
 
         <div className="grid grid-cols-2 gap-3">
           {isLabor ? (
-            <Field label="Hours" htmlFor="hrs">
+            <Field label="Billed hours" htmlFor="hrs">
               <TextInput id="hrs" inputMode="decimal" value={hours} onChange={(e) => setHours(e.target.value)} />
             </Field>
           ) : (
@@ -115,8 +137,19 @@ export function LineItemEditor({ open, initial, defaultLaborRate, defaultMarkupP
           </Field>
         </div>
 
+        {isLabor && (
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Actual hours (optional)" htmlFor="actual-hours">
+              <TextInput id="actual-hours" inputMode="decimal" value={actualHours} onChange={e => setActualHours(e.target.value)} />
+            </Field>
+            <Field label="Direct cost / hour" htmlFor="hourly-cost">
+              <TextInput id="hourly-cost" inputMode="decimal" value={hourlyCost} onChange={e => setHourlyCost(e.target.value)} />
+            </Field>
+          </div>
+        )}
+
         {(isPart || kind === 'sublet') && (
-          <Field label="Your cost (optional)" htmlFor="cost" hint="Tracks margin; tap “Apply markup” to price it.">
+          <Field label="Your cost (optional)" htmlFor="cost" hint={isPart ? 'Use markup to calculate the selling price.' : undefined}>
             <div className="flex gap-2">
               <TextInput id="cost" inputMode="decimal" value={unitCost} onChange={(e) => setUnitCost(e.target.value)} />
               {isPart && (
@@ -133,13 +166,21 @@ export function LineItemEditor({ open, initial, defaultLaborRate, defaultMarkupP
           </label>
         )}
 
+        {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
         <div className="flex gap-3 pt-2">
-          <Button type="button" full onClick={save}>{initial ? 'Save' : 'Add'}</Button>
+          <Button type="button" full disabled={saving} onClick={save}>{initial ? 'Save' : 'Add'}</Button>
           {initial && onDelete && (
-            <Button type="button" variant="danger" onClick={onDelete}>Remove</Button>
+            <Button type="button" variant="danger" disabled={saving} onClick={() => onDelete().catch(cause => setError(cause.message))}>Remove</Button>
           )}
         </div>
       </div>
     </Sheet>
   )
+}
+
+function parseQuantity(raw: string) {
+  if (!/^\d+(?:[.,]\d+)?$/.test(raw.trim())) throw new Error('Enter a nonnegative number without grouping separators.')
+  const number = Number(raw.trim().replace(',', '.'))
+  if (!Number.isFinite(number)) throw new Error('Quantity is too large.')
+  return number
 }

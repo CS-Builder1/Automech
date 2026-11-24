@@ -62,7 +62,7 @@ export async function saveAppointment(
 
 async function openJob(id: string) {
   const job = await db.workOrders.get(id)
-  if (!job || job.status === 'invoiced' || job.status === 'cancelled') {
+  if (!job || ['completed', 'invoiced', 'cancelled'].includes(job.status)) {
     throw Error('This job is closed or unavailable.')
   }
   const [customer, vehicle] = await Promise.all([db.customers.get(job.customerId), db.vehicles.get(job.vehicleId)])
