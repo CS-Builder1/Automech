@@ -94,7 +94,7 @@ export function Billing() {
         <ul className="divide-y dark:divide-slate-700">{filtered.map(i => <li key={i.id}>
           <Link className="flex flex-wrap justify-between gap-2 py-3" to={'/billing/' + i.id}>
             <span><strong>{i.number}</strong> · {i.customerName ?? 'Customer'}<br/><small>{i.dueAt ? 'Due ' + i.dueAt.slice(0,10) : i.issuedDate ?? new Date(i.issuedAt).toLocaleDateString()}</small></span>
-            <span>{i.total > i.amountPaid ? formatMoney(i.total - i.amountPaid, {currency: i.currency ?? 'USD'}) + ' due' : 'Paid'}</span>
+            <span>{i.total > i.amountPaid ? formatMoney(i.total - i.amountPaid, {currency: i.currency ?? 'USD', displayCurrency: i.displayCurrency, pegRate: i.pegRate}) + ' due' : 'Paid'}</span>
           </Link></li>)}</ul>}
     </section>
     <section className="card space-y-4 p-4">

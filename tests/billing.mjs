@@ -47,11 +47,12 @@ try {
     const { workOrdersRepo } = await import('/src/repositories/workOrders.ts')
     const date = new Date().toISOString()
     await ensureSettings()
+    await db.settings.update('singleton', {displayCurrency: 'XCD', pegRate: 2.7})
     const customerId = 'customer', vehicleId = 'vehicle'
     await db.customers.add({ id: customerId, firstName: 'Ava', lastName: 'Young', updatedAt: date, createdAt: date })
     await db.vehicles.add({ id: vehicleId, customerId, type: 'car', licensePlate: 'SAMPLE', updatedAt: date, createdAt: date })
     const order = await workOrdersRepo.create({
-      customerId, vehicleId, status: 'estimate', currency: 'USD',
+      customerId, vehicleId, status: 'estimate', currency: 'USD', displayCurrency: 'XCD', pegRate: 2.7,
       lineItems: [{ id: 'lab', kind: 'labor', description: 'Diagnosis', quantity: 3, unitPrice: 10000, taxable: false }],
     })
     const refused = await issueInvoice(order.id).then(() => false, () => true)
@@ -70,7 +71,7 @@ try {
     ])
     await db.customers.update(customerId, { deletedAt: null })
     const [invoice, same] = await Promise.all([issueInvoice(order.id), issueInvoice(order.id)])
-    await db.settings.update('singleton', { currency: 'XCD', shopName: 'Renamed' })
+    await db.settings.update('singleton', { currency: 'XCD', displayCurrency: 'EUR', pegRate: 0.5, shopName: 'Renamed' })
     await db.customers.update(customerId, { firstName: 'Changed' })
     const partial = { invoiceId: invoice.id, requestId: 'payment-1', method: 'bank_transfer', amount: 15000 }
     const duplicate = await Promise.all([recordPayment(partial), recordPayment(partial)])
@@ -135,6 +136,8 @@ try {
     const receiptHtml = customerHtml(receiptDocument(deposit))
     return {invoiceHtml, receiptHtml}
   })
+  assert.match(docs.invoiceHtml, /810\.00/)
+  assert.match(docs.receiptHtml, /270\.00/)
   assert.match(docs.invoiceHtml, /&lt;oil &amp; filter&gt;/)
   assert.doesNotMatch(docs.invoiceHtml, /PRIVATE WHOLESALER|12345678|<oil & filter>/)
   assert.match(docs.receiptHtml, /Deposit receipt RCT-/)
