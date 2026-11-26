@@ -5,6 +5,7 @@ import { parseRate } from '../src/lib/money.ts'
 test('shop rates accept a decimal comma and reject unsafe financial defaults', () => {
   assert.equal(parseRate('12,5'), 12.5)
   assert.equal(parseRate('1,5'), 1.5)
+  assert.equal(parseRate('0,125'), 0.125)
   assert.equal(parseRate('1.5'), 1.5)
   assert.equal(parseRate('2'), 2)
   assert.equal(parseRate('2.7000'), 2.7)

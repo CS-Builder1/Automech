@@ -66,8 +66,9 @@ export function LineItemEditor({ open, initial, defaultLaborRate, defaultMarkupP
     try {
       setError('')
       if (!description.trim()) throw new Error('Describe the work or item.')
-      const qty = parseQuantity(isLabor ? hours : quantity)
-      if (qty <= 0) throw new Error('Billed hours or quantity must be greater than zero.')
+      const label = isLabor ? 'Billed hours' : 'Quantity'
+      const qty = parseQuantity(isLabor ? hours : quantity, label)
+      if (qty <= 0) throw new Error(label + ' must be greater than zero.')
       if (isLabor && hourlyCost && !actualHours) {
         throw new Error('Enter actual hours to calculate direct labor cost.')
       }
@@ -75,7 +76,7 @@ export function LineItemEditor({ open, initial, defaultLaborRate, defaultMarkupP
         id: initial?.id ?? newId(), kind, description: description.trim(), quantity: qty,
         unitPrice: parseAmountToMinor(unitPrice),
         hours: isLabor ? qty : undefined,
-        actualHours: isLabor && actualHours ? parseQuantity(actualHours) : undefined,
+        actualHours: isLabor && actualHours ? parseQuantity(actualHours, 'Actual hours') : undefined,
         hourlyCost: isLabor && hourlyCost ? parseAmountToMinor(hourlyCost) : undefined,
         partNumber: isPart ? partNumber.trim() || undefined : undefined,
         supplier: isPart ? supplier.trim() || undefined : undefined,
