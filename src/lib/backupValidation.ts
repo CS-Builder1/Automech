@@ -147,19 +147,31 @@ const links: Record<string, Record<string, string>> = {
   appointments: { customerId: 'customers', vehicleId: 'vehicles', workOrderId: 'workOrders' },
 }
 
-/** Keep deleted rows in the snapshot: historical jobs and invoices can still refer to them. */
-export function validateRecords(tables: BackupTables) {
+export function validateRecordIds(tables: BackupTables) {
   const ids = new Map<string, Set<string>>()
   for (const [table, rows] of Object.entries(tables)) {
     const seen = new Set<string>()
     ids.set(table, seen)
-    const shape = shapes[table]
-    if (!shape) throw new Error(`Unsupported backup table: ${table}.`)
     for (const row of rows) {
       if (!record(row) || typeof row.id !== 'string' || !id(row.id) || seen.has(row.id)) {
         throw new Error(`Missing or duplicate record ID in ${table}.`)
       }
       seen.add(row.id)
+    }
+  }
+  if (tables.settings.length !== 1 || !ids.get('settings')?.has('singleton')) {
+    throw new Error('The backup needs exactly one shop settings record.')
+  }
+  return ids
+}
+
+/** Keep deleted rows in the snapshot: historical jobs and invoices can still refer to them. */
+export function validateRecords(tables: BackupTables) {
+  const ids = validateRecordIds(tables)
+  for (const [table, rows] of Object.entries(tables)) {
+    const shape = shapes[table]
+    if (!shape) throw new Error(`Unsupported backup table: ${table}.`)
+    for (const row of rows) {
       const path: string[] = []
       for (const [field, check] of Object.entries(shape)) {
         if (!check(row[field], path)) {
@@ -167,9 +179,6 @@ export function validateRecords(tables: BackupTables) {
         }
       }
     }
-  }
-  if (tables.settings.length !== 1 || !ids.get('settings')?.has('singleton')) {
-    throw new Error('The backup needs exactly one shop settings record.')
   }
   for (const [table, references] of Object.entries(links)) {
     for (const row of tables[table]) {

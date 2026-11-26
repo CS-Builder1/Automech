@@ -1,7 +1,7 @@
 import Dexie from 'dexie'
 import { syncRestoreEpoch } from './restoreEpoch'
 import { AutomechDB, db } from '@/db/database'
-import { cleanLegacyNumbers, normalizeDocumentCounters, validateRecords, timestamp, type BackupTables } from './backupValidation'
+import { cleanLegacyNumbers, normalizeDocumentCounters, validateRecordIds, validateRecords, timestamp, type BackupTables } from './backupValidation'
 
 // Format 1: { payload: { format, version, schemaVersion, createdAt, tables }, sha256 }.
 // sha256 covers the UTF-8 bytes of JSON.stringify(payload). This detects damage,
@@ -103,7 +103,8 @@ function checkTables(input: unknown, schemaVersion: number): BackupTables {
     tables[name] = rows
   }
   for (const asset of tables.media) asset.blob = decodeBlob(asset.blob)
-  validateRecords(tables)
+  if (schemaVersion < db.verno) validateRecordIds(tables)
+  else validateRecords(tables)
   return tables
 }
 

@@ -350,6 +350,33 @@ try {
     assert.ok(migrated.workOrders[0].authorizations.length)
   }
   console.log('PASS historical single-approval backup restores successfully')
+
+  // The v2 upgrade recognizes a falsy legacy authorization as unsigned.
+  // Full current-shape validation before that upgrade would reject the file.
+  const oldUnsigned = structuredClone(historical)
+  oldUnsigned.payload.tables.workOrders[0].authorization = ''
+  await upload(destination, recalculate(oldUnsigned))
+  await destination.getByText(/File checked|Invalid workOrders record/).waitFor()
+  assert.equal(await destination.getByRole('alert').count(), 0, 'a migratable v1 record failed validation')
+  await confirm(destination)
+  await destination.getByText(/Restore complete/).waitFor()
+  const unsigned = await storedRow(destination, 'workOrders', 'w')
+  assert.equal(unsigned.authorization, undefined)
+  assert.deepEqual(unsigned.authorizations, [])
+
+  for (const [mutate, expected] of [
+    [rows => rows.push({ ...rows[0] }), 'duplicate record ID'],
+    [rows => { rows[0].id = ' ' }, 'Missing or duplicate record ID'],
+    [rows => { rows[0].complaint = {} }, 'Invalid workOrders record (complaint)'],
+  ]) {
+    const invalid = structuredClone(oldUnsigned)
+    mutate(invalid.payload.tables.workOrders)
+    await upload(destination, recalculate(invalid))
+    await destination.getByRole('alert').filter({ hasText: expected }).waitFor()
+    assert.equal(await destination.getByRole('button', { name: 'Restore shop records' }).count(), 0)
+  }
+  assert.deepEqual(await storedRow(destination, 'workOrders', 'w'), unsigned)
+  console.log('PASS old backups require valid IDs and valid migrated records before replacement')
 } finally {
   await browser.close()
 }
