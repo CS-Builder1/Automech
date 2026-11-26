@@ -61,9 +61,9 @@ export async function saveAppointment(
   })
 }
 
-async function openJob(id: string) {
+async function openJob(id: string, { allowCompleted = false } = {}) {
   const job = await db.workOrders.get(id)
-  if (!job || ['completed', 'invoiced', 'cancelled'].includes(job.status)) {
+  if (!job || ['invoiced', 'cancelled'].includes(job.status) || (job.status === 'completed' && !allowCompleted)) {
     throw Error('This job is closed or unavailable.')
   }
   const [customer, vehicle] = await Promise.all([db.customers.get(job.customerId), db.vehicles.get(job.vehicleId)])
@@ -84,7 +84,9 @@ export async function updatePart(
   changes: Pick<LineItem, 'supplier' | 'expectedAt' | 'partStatus'>,
 ) {
   await db.transaction('rw', db.workOrders, db.customers, db.vehicles, async () => {
-    const job = await openJob(jobId)
+    const job = await openJob(jobId, { allowCompleted: true })
+    if (Object.keys(changes).some(key => !['supplier', 'expectedAt', 'partStatus'].includes(key)))
+      throw Error('Only part receiving details can be updated here.')
     if (!job.lineItems.some((item) => item.kind === 'part' && item.id === itemId))
       throw Error('This part is no longer on the job.')
     await db.workOrders.update(jobId, {
