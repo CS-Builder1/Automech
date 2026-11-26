@@ -154,6 +154,14 @@ async function upgradeSnapshot(tables: BackupTables, oldVersion: number): Promis
       for (const table of old.tables) await table.bulkAdd(tables[table.name])
     })
     old.close()
+    try {
+      await upgraded.open()
+    } catch (cause) {
+      if (cause instanceof TypeError || cause instanceof Dexie.UpgradeError) {
+        throw new Error('This backup is damaged and its records could not be upgraded. Choose another copy.')
+      }
+      throw cause
+    }
     const migrated = await readAll(upgraded)
     validateRecords(migrated)
     return migrated

@@ -458,6 +458,14 @@ try {
   assert.equal(unsigned.authorization, undefined)
   assert.deepEqual(unsigned.authorizations, [])
 
+  const brokenHistory = structuredClone(historical)
+  brokenHistory.payload.tables.workOrders[0].authorizations = { revision: 1 }
+  await upload(destination, recalculate(brokenHistory))
+  const migrationError = destination.getByRole('alert')
+  await migrationError.waitFor()
+  assert.match(await migrationError.textContent(), /This backup is damaged|Invalid workOrders record \(authorizations\)/)
+  assert.equal(await destination.getByRole('button', { name: 'Restore shop records' }).count(), 0)
+
   for (const [mutate, expected] of [
     [rows => rows.push({ ...rows[0] }), 'duplicate record ID'],
     [rows => { rows[0].id = ' ' }, 'Missing or duplicate record ID'],
