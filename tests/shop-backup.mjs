@@ -430,11 +430,13 @@ try {
   // Full current-shape validation before that upgrade would reject the file.
   const oldUnsigned = structuredClone(historical)
   oldUnsigned.payload.tables.workOrders[0].authorization = ''
+  await destination.evaluate(() => { delete Crypto.prototype.randomUUID })
   await upload(destination, recalculate(oldUnsigned))
-  await destination.getByText(/File checked|Invalid workOrders record/).waitFor()
+  await destination.getByText(/File checked|Invalid workOrders record|randomUUID/).waitFor()
   assert.equal(await destination.getByRole('alert').count(), 0, 'a migratable v1 record failed validation')
   await confirm(destination)
   await destination.getByText(/Restore complete/).waitFor()
+  assert.match((await storedRow(destination, 'settings', 'singleton')).restoreEpoch, /^id_/)
   const unsigned = await storedRow(destination, 'workOrders', 'w')
   assert.equal(unsigned.authorization, undefined)
   assert.deepEqual(unsigned.authorizations, [])

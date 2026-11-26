@@ -1,4 +1,5 @@
 import Dexie from 'dexie'
+import { newId } from './id'
 import { syncRestoreEpoch } from './restoreEpoch'
 import { AutomechDB, db } from '@/db/database'
 import { cleanLegacyNumbers, normalizeDocumentCounters, validateRecordIds, validateRecords, timestamp, type BackupTables } from './backupValidation'
@@ -126,7 +127,7 @@ export async function cleanAbandonedRestores() {
 
 /** Run the app's own schema upgrades on an isolated copy before touching live records. */
 async function upgradeSnapshot(tables: BackupTables, oldVersion: number): Promise<BackupTables> {
-  const name = restorePrefix + crypto.randomUUID()
+  const name = restorePrefix + newId()
   const owner = new Dexie(name + ownerSuffix)
   owner.version(1).stores({})
   // Keep this empty database open until the copy is gone. IndexedDB releases
@@ -195,7 +196,7 @@ export async function inspectBackup(file: File) {
     // Only validated private data reaches this operation. Dexie aborts all
     // clears and inserts together on request errors, including quota failures.
     async replaceShop() {
-      const epoch = crypto.randomUUID()
+      const epoch = newId()
       await db.transaction('rw', db.tables, async () => {
         for (const table of db.tables) {
           await table.clear()
