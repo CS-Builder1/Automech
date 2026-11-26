@@ -10,11 +10,12 @@ interface Props {
   original?: Appointment
   day: string
   jobs: WorkOrder[]
+  linkedJob?: WorkOrder
   onClose: () => void
   onSaved: (day: string) => void
 }
 
-export function AppointmentForm({ original, day, jobs, onClose, onSaved }: Props) {
+export function AppointmentForm({ original, day, jobs, linkedJob, onClose, onSaved }: Props) {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   async function save(event: React.FormEvent<HTMLFormElement>) {
@@ -86,11 +87,16 @@ export function AppointmentForm({ original, day, jobs, onClose, onSaved }: Props
           Linked repair order
           <select className="input" name="job" defaultValue={original?.workOrderId ?? ''}>
             <option value="">No repair order yet</option>
+            {original?.workOrderId && (
+              <option value={original.workOrderId}>
+                {linkedJob?.number ?? original.workOrderId}
+                {jobs.some(j => j.id === original.workOrderId) ? ' · ' + (linkedJob?.complaint ?? '') : ' (archived)'}
+              </option>
+            )}
             {jobs
               .filter(
                 (j) =>
-                  !j.deletedAt &&
-                  (j.id === original?.workOrderId || !['invoiced', 'cancelled'].includes(j.status)),
+                  j.id !== original?.workOrderId && !['invoiced', 'cancelled'].includes(j.status),
               )
               .map((j) => (
                 <option key={j.id} value={j.id}>

@@ -4,6 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/database'
 import type { Appointment, LineItem, PartStatus, WorkOrder } from '@/db/types'
 import { dayBounds, localDateTime, updatePart } from '@/repositories/operations'
+import { isArchivedJob } from '@/lib/records'
 import { STATUS_META } from '@/lib/status'
 import { nowISO } from '@/lib/id'
 import { AppointmentForm } from '@/components/operations/AppointmentForm'
@@ -35,14 +36,8 @@ export function Operations() {
     const owners = new Map(customers.map((c) => [c.id, c]))
     const cars = new Map(vehicles.map((v) => [v.id, v]))
     return {
-      jobs: jobs.filter(
-        (j) =>
-          !j.deletedAt &&
-          owners.has(j.customerId) &&
-          !owners.get(j.customerId)?.deletedAt &&
-          cars.has(j.vehicleId) &&
-          !cars.get(j.vehicleId)?.deletedAt,
-      ),
+      jobs,
+      activeJobs: jobs.filter(j => !isArchivedJob(j, owners.get(j.customerId), cars.get(j.vehicleId))),
       owners,
       cars,
       appointments,
@@ -50,7 +45,7 @@ export function Operations() {
   }, [])
   if (!data) return <p>Loading operations…</p>
   const bounds = dayBounds(day)
-  const open = data.jobs.filter((j) => !['invoiced', 'cancelled'].includes(j.status))
+  const open = data.activeJobs.filter((j) => !['invoiced', 'cancelled'].includes(j.status))
   const jobLink = (j: WorkOrder) => {
     const owner = data.owners.get(j.customerId)
     const car = data.cars.get(j.vehicleId)
@@ -78,7 +73,7 @@ export function Operations() {
       .filter((l) => l.kind === 'part' && l.partStatus !== 'received')
       .map((item) => ({ j, item })),
   )
-  const deferred = data.jobs.flatMap((j) => (j.declinedItems ?? []).map((item) => ({ j, item })))
+  const deferred = data.activeJobs.flatMap((j) => (j.declinedItems ?? []).map((item) => ({ j, item })))
   async function contacted(j: WorkOrder, item: LineItem, form: HTMLFormElement) {
     const outcome = String(new FormData(form).get('outcome')).trim()
     if (!outcome) return
@@ -270,7 +265,8 @@ export function Operations() {
       {editing && (
         <AppointmentForm
           day={day}
-          jobs={data.jobs}
+          jobs={data.activeJobs}
+          linkedJob={editing === 'new' ? undefined : data.jobs.find(j => j.id === editing.workOrderId)}
           original={editing === 'new' ? undefined : editing}
           onClose={() => setEditing(undefined)}
           onSaved={(d) => {

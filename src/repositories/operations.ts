@@ -21,7 +21,7 @@ export async function saveAppointment(
 ) {
   if (!input.title.trim() || !input.endAt || input.startAt >= input.endAt)
     throw Error('Choose an end time after the start.')
-  return db.transaction('rw', db.appointments, db.workOrders, async () => {
+  return db.transaction('rw', [db.appointments, db.workOrders, db.customers, db.vehicles], async () => {
     const originalRow = original && (await db.appointments.get(original.id))
     if (
       original &&
@@ -29,8 +29,18 @@ export async function saveAppointment(
     ) {
       throw Error('This booking changed. Reopen it to see the latest details.')
     }
-    const job = input.workOrderId ? await db.workOrders.get(input.workOrderId) : undefined
-    if (input.workOrderId && (!job || job.deletedAt)) throw Error('The linked job is unavailable.')
+    let customerId = originalRow?.customerId
+    let vehicleId = originalRow?.vehicleId
+    if (input.workOrderId !== originalRow?.workOrderId) {
+      const job = input.workOrderId ? await db.workOrders.get(input.workOrderId) : undefined
+      if (input.workOrderId) {
+        if (!job) throw Error('The linked job is unavailable.')
+        const [customer, vehicle] = await Promise.all([db.customers.get(job.customerId), db.vehicles.get(job.vehicleId)])
+        if (isArchivedJob(job, customer, vehicle)) throw Error('The linked job is unavailable.')
+      }
+      customerId = job?.customerId
+      vehicleId = job?.vehicleId
+    }
     const bay = input.bay?.trim()
     if (bay) {
       const earlier = await db.appointments.where('startAt').below(input.endAt!).toArray()
@@ -48,12 +58,12 @@ export async function saveAppointment(
     }
     const stamp = nowISO()
     await db.appointments.put({
-      ...original,
+      ...originalRow,
       ...input,
       title: input.title.trim(),
       bay,
-      customerId: job?.customerId ?? (original?.workOrderId ? undefined : original?.customerId),
-      vehicleId: job?.vehicleId ?? (original?.workOrderId ? undefined : original?.vehicleId),
+      customerId,
+      vehicleId,
       id: original?.id ?? newId(),
       createdAt: original?.createdAt ?? stamp,
       updatedAt: stamp,

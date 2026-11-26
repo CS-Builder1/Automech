@@ -150,6 +150,46 @@ try {
   console.log(
     'PASS dispatch, inspection to estimate, pickup and approval queues, parts receiving, deferred follow-up',
   )
+  await page.getByRole('button', { name: 'Schedule', exact: true }).click()
+  await page.getByLabel('Day', { exact: true }).fill('2026-11-24')
+  await page.getByRole('button', { name: 'Edit Brake and tire diagnosis' }).click()
+  const linkedOrder = page.getByLabel('Linked repair order')
+  await linkedOrder.selectOption(jobId)
+  await page.getByRole('button', { name: 'Save appointment' }).click()
+  await page.getByRole('dialog').waitFor({ state: 'hidden' })
+
+  const readBooking = () => page.evaluate(async () => {
+    const { db } = await import('/src/db/database.ts')
+    return db.appointments.toCollection().first()
+  })
+  for (const [table, id] of [['workOrders', jobId], ['customers', 'owner'], ['vehicles', 'car']]) {
+    await page.evaluate(async ([table, id]) => {
+      const { db } = await import('/src/db/database.ts')
+      await db.table(table).update(id, { deletedAt: new Date().toISOString() })
+    }, [table, id])
+    await page.getByRole('button', { name: 'Edit Brake and tire diagnosis' }).click()
+    assert.equal(await linkedOrder.inputValue(), jobId)
+    assert.match(await linkedOrder.locator('option:checked').textContent(), /RO-1200.*archived/i)
+    await page.getByLabel('Contact and visit notes').fill('Rescheduled after archiving ' + table)
+    await page.getByRole('button', { name: 'Save appointment' }).click()
+    await page.getByRole('dialog').waitFor({ state: 'hidden' })
+    const booking = await readBooking()
+    assert.equal(booking.notes, 'Rescheduled after archiving ' + table)
+    assert.deepEqual([booking.workOrderId, booking.customerId, booking.vehicleId], [jobId, 'owner', 'car'])
+    if (table === 'vehicles') {
+      await page.getByRole('button', { name: 'Edit Brake and tire diagnosis' }).click()
+      await linkedOrder.selectOption('')
+      await page.getByRole('button', { name: 'Save appointment' }).click()
+      await page.getByRole('dialog').waitFor({ state: 'hidden' })
+      const unlinked = await readBooking()
+      assert.deepEqual([unlinked.workOrderId, unlinked.customerId, unlinked.vehicleId], [undefined, undefined, undefined])
+    }
+    await page.evaluate(async ([table, id]) => {
+      const { db } = await import('/src/db/database.ts')
+      await db.table(table).update(id, { deletedAt: null })
+    }, [table, id])
+  }
+  console.log('PASS bookings keep archived job, customer and vehicle links until explicitly removed')
 } finally {
   await browser?.close()
   await server.close()
