@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import type { WorkOrder } from '@/db/types'
-import { WorkOrderFieldConflict, workOrdersRepo } from '@/repositories/workOrders'
+import { WorkOrderEditRejected, WorkOrderFieldConflict, workOrdersRepo } from '@/repositories/workOrders'
 
 type Field = 'complaint' | 'diagnosis' | 'mileageIn' | 'mileageOut'
 
@@ -26,7 +26,7 @@ function clearDraft(key: string) {
 }
 
 function writeDraft(key: string, draft: Draft) {
-  try { sessionStorage.setItem(key, JSON.stringify(draft)) } catch { clearDraft(key) }
+  try { sessionStorage.setItem(key, JSON.stringify(draft)) } catch { /* Keep the previous recovery copy if Web Storage is full. */ }
 }
 
 /** The same-tab draft covers reloads that interrupt the IndexedDB transaction. */
@@ -37,7 +37,7 @@ export function WorkOrderField({ order, field, label, readOnly, restoreEpoch }: 
   const mileage = field === 'mileageIn' || field === 'mileageOut'
   const persisted = String(order[field] ?? '')
   const [value, setValue] = useState(persisted)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<{ message: string; retry?: boolean }>()
   const [recovered, setRecovered] = useState<string | null>(null)
   const base = useRef(persisted)
   const pending = useRef<Draft | null>(null)
@@ -46,12 +46,13 @@ export function WorkOrderField({ order, field, label, readOnly, restoreEpoch }: 
   async function persist() {
     if (writing.current) return
     writing.current = true
+    setError(undefined)
     try {
       while (pending.current) {
         const draft = pending.current
         const raw = draft.value
         if (mileage && raw && (!/^\d+$/.test(raw) || !Number.isSafeInteger(Number(raw)))) {
-          setError('Enter a whole, nonnegative odometer reading.')
+          setError({message: 'Enter a whole, nonnegative odometer reading.'})
           return
         }
         const next = raw === '' ? undefined : mileage ? Number(raw) : raw
@@ -68,11 +69,16 @@ export function WorkOrderField({ order, field, label, readOnly, restoreEpoch }: 
         }
       }
     } catch (cause) {
-      pending.current = null
-      clearDraft(draftKey)
-      if (cause instanceof WorkOrderFieldConflict) base.current = cause.currentValue
-      setValue(base.current)
-      setError((cause as Error).message)
+      if (cause instanceof WorkOrderEditRejected) {
+        pending.current = null
+        clearDraft(draftKey)
+        if (cause instanceof WorkOrderFieldConflict) base.current = cause.currentValue
+        setValue(base.current)
+        setError({message: cause.message})
+      } else if (pending.current) {
+        // Edits typed during the failed write are already in pending and in the journal when available.
+        setError({message: 'Could not save this edit. Keep this tab open and retry.', retry: true})
+      }
     } finally {
       writing.current = false
     }
@@ -82,7 +88,7 @@ export function WorkOrderField({ order, field, label, readOnly, restoreEpoch }: 
     if (!pending.current || readOnly) setValue(persisted)
   }, [persisted, readOnly])
   useEffect(() => {
-    const draft = readDraft(draftKey)
+    const draft = pending.current ?? readDraft(draftKey)
     if (typeof draft === 'string') {
       setRecovered(draft)
       return
@@ -92,7 +98,7 @@ export function WorkOrderField({ order, field, label, readOnly, restoreEpoch }: 
       pending.current = null
       clearDraft(draftKey)
       setValue(persisted)
-      if (draft.value !== persisted) setError(readOnly ? 'This job is read-only.' : new WorkOrderFieldConflict(persisted).message)
+      if (draft.value !== persisted) setError({message: readOnly ? 'This job is read-only.' : new WorkOrderFieldConflict(persisted).message})
     } else if (!writing.current) {
       pending.current = draft
       setValue(draft.value)
@@ -101,7 +107,7 @@ export function WorkOrderField({ order, field, label, readOnly, restoreEpoch }: 
   }, [draftKey, readOnly])
   function change(raw: string) {
     setValue(raw)
-    setError('')
+    setError(undefined)
     const draft = {base: pending.current?.base ?? base.current, value: raw}
     pending.current = draft
     writeDraft(draftKey, draft)
@@ -115,7 +121,8 @@ export function WorkOrderField({ order, field, label, readOnly, restoreEpoch }: 
           ? <input className="input" readOnly={readOnly || recovered !== null} inputMode="numeric" value={value} onChange={e => change(e.target.value)} />
           : <textarea className="input" readOnly={readOnly || recovered !== null} rows={2} value={value} onChange={e => change(e.target.value)} />}
       </label>
-      {error && <span role="alert" className="text-xs text-red-700">{error}</span>}
+      {error && <span role="alert" className="text-xs text-red-700">{error.message}</span>}
+      {error?.retry && !readOnly && <Button type="button" variant="secondary" size="sm" onClick={() => void persist()}>Retry save</Button>}
       {recovered !== null && <div className="mt-2 space-y-2 text-sm">
         <p>Unsaved edit from an earlier version</p>
         <pre className="whitespace-pre-wrap break-words font-sans">{recovered || '(empty field)'}</pre>

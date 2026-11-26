@@ -300,15 +300,27 @@ test('concurrent repair orders skip active and archived numbers above the counte
 
 test('an old editor cannot replay a note across a committed backup restore', async () => {
   const {page,order} = await newJob()
-  const result = await page.evaluate(async id => {
+  // Commit a restored epoch without notifying this tab's live query, leaving its editor stale.
+  await page.evaluate(async id => {
     const {db} = await import('/src/db/database.ts')
-    const {workOrdersRepo} = await import('/src/repositories/workOrders.ts')
-    await db.settings.update('singleton', {restoreEpoch:'restored'})
-    await db.workOrders.update(id,{diagnosis:'Restored diagnosis'})
-    const [old] = await Promise.allSettled([workOrdersRepo.update(id,{diagnosis:'Old draft'},'initial')])
-    return [old.status,(await db.workOrders.get(id)).diagnosis]
+    const tx = db.backendDB().transaction(['settings', 'workOrders'], 'readwrite')
+    for (const [table, key, patch] of [
+      ['settings', 'singleton', {restoreEpoch: 'restored'}],
+      ['workOrders', id, {diagnosis: 'Restored diagnosis'}],
+    ]) {
+      const store = tx.objectStore(table)
+      const read = store.get(key)
+      read.onsuccess = () => store.put({...read.result, ...patch})
+    }
+    await new Promise((resolve, reject) => { tx.oncomplete = resolve; tx.onabort = () => reject(tx.error) })
   },order.id)
-  assert.deepEqual(result,['rejected','Restored diagnosis'])
+  const notes = page.getByLabel('Diagnosis / notes')
+  await notes.fill('Old draft')
+  await page.getByRole('alert').filter({hasText: /backup was restored/i}).waitFor()
+  assert.equal(await page.getByRole('button', {name: 'Retry save'}).count(), 0)
+  assert.equal(await page.evaluate(id => sessionStorage.getItem('automech:job-draft:initial:' + id + ':diagnosis'), order.id), null)
+  await page.reload()
+  assert.equal(await notes.inputValue(), 'Restored diagnosis')
   await page.close()
 })
 
@@ -418,6 +430,55 @@ test('a rejected edit cannot replay over notes from another tab after reopening'
   assert.equal(await page.getByLabel('Diagnosis / notes').inputValue(), 'Rotors measured this morning')
   assert.equal(await page.evaluate(key => sessionStorage.getItem(key), key), null)
   await context.close()
+})
+
+test('a storage failure preserves in-flight typing across reload and allows retry', async () => {
+  const {page, order} = await newJob()
+  const key = 'automech:job-draft:initial:' + order.id + ':diagnosis'
+  const latest = 'Inspect front rotors and calipers'
+  await page.addInitScript(() => {
+    const put = IDBObjectStore.prototype.put
+    IDBObjectStore.prototype.put = function (...args) {
+      if (this.name === 'workOrders' && sessionStorage.getItem('simulate-full-database'))
+        throw new DOMException('Storage quota exceeded', 'QuotaExceededError')
+      return put.apply(this, args)
+    }
+  })
+  await page.reload()
+  const notes = page.getByLabel('Diagnosis / notes')
+  await notes.waitFor()
+  await page.evaluate(async () => {
+    const {db} = await import('/src/db/database.ts')
+    sessionStorage.setItem('simulate-full-database', 'yes')
+    // Hold the first autosave in the IndexedDB queue while the user continues editing.
+    const store = db.backendDB().transaction('workOrders', 'readwrite').objectStore('workOrders')
+    let held = true
+    function keepAlive() { store.count().onsuccess = () => { if (held) keepAlive() } }
+    keepAlive()
+    window.releaseNoteWrite = () => { held = false }
+  })
+  await notes.fill('Inspect front rotors')
+  await notes.fill(latest)
+  await page.evaluate(() => window.releaseNoteWrite())
+  const alert = page.getByRole('alert')
+  await alert.waitFor()
+  assert.equal(await notes.inputValue(), latest)
+  assert.deepEqual(await page.evaluate(key => JSON.parse(sessionStorage.getItem(key)), key), {base: '', value: latest})
+  await page.reload()
+  await alert.waitFor()
+  assert.equal(await notes.inputValue(), latest)
+  assert.equal(await page.evaluate(async id => {
+    const {db} = await import('/src/db/database.ts')
+    return (await db.workOrders.get(id)).diagnosis
+  }, order.id), undefined)
+  await page.evaluate(() => sessionStorage.removeItem('simulate-full-database'))
+  await page.getByRole('button', {name: 'Retry save'}).click()
+  await page.waitForFunction(async ({id, key, latest}) => {
+    const {db} = await import('/src/db/database.ts')
+    return (await db.workOrders.get(id)).diagnosis === latest && sessionStorage.getItem(key) === null
+  }, {id: order.id, key, latest}, {timeout: 3000})
+  assert.equal(await alert.count(), 0)
+  await page.close()
 })
 
 test('an older draft without a base can be recovered without overwriting the saved note', async () => {

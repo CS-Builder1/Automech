@@ -12,7 +12,10 @@ export type NewWorkOrder = Omit<WorkOrder, 'id' | 'number' | 'createdAt' | 'upda
 export type ApprovalInput = Pick<AuthorizationRecord, 'authorizedBy' | 'method' | 'note' | 'signatureDataUrl'>
 type EditableFields = Pick<WorkOrder, 'complaint' | 'diagnosis' | 'mileageIn' | 'mileageOut'>
 
-export class WorkOrderFieldConflict extends Error {
+/** The database accepted the read but the requested edit is no longer valid. */
+export class WorkOrderEditRejected extends Error {}
+
+export class WorkOrderFieldConflict extends WorkOrderEditRejected {
   constructor(readonly currentValue: string) {
     super('This field changed. Review the latest value before editing.')
   }
@@ -22,16 +25,16 @@ async function activeParents(customerId: string, vehicleId: string) {
   const customer = await db.customers.get(customerId)
   const vehicle = await db.vehicles.get(vehicleId)
   if (!customer || customer.deletedAt || !vehicle || vehicle.deletedAt || vehicle.customerId !== customerId) {
-    throw new Error('An active customer and matching vehicle are required.')
+    throw new WorkOrderEditRejected('An active customer and matching vehicle are required.')
   }
   return vehicle
 }
 
 async function editable(id: string) {
   const order = await db.workOrders.get(id)
-  if (!order || order.deletedAt) throw new Error('This job is archived or missing.')
+  if (!order || order.deletedAt) throw new WorkOrderEditRejected('This job is archived or missing.')
   await activeParents(order.customerId, order.vehicleId)
-  if (order.status === 'invoiced') throw new Error('An invoiced job is read-only.')
+  if (order.status === 'invoiced') throw new WorkOrderEditRejected('An invoiced job is read-only.')
   return order
 }
 
@@ -86,15 +89,15 @@ export const workOrdersRepo = {
     expected?: { field: keyof EditableFields; value: string }): Promise<void> {
     const keys: (keyof EditableFields)[] = ['complaint', 'diagnosis', 'mileageIn', 'mileageOut']
     if (Object.keys(patch).some(key => !keys.some(editableKey => editableKey === key))) {
-      throw new Error('This field cannot be edited directly.')
+      throw new WorkOrderEditRejected('This field cannot be edited directly.')
     }
     await db.transaction('rw', [db.workOrders, db.vehicles, db.customers, db.settings], async () => {
       if (restoreEpoch !== undefined) {
         const current = (await db.settings.get('singleton'))?.restoreEpoch ?? 'initial'
-        if (restoreEpoch !== current) throw new Error('A backup was restored. Review the restored job before editing.')
+        if (restoreEpoch !== current) throw new WorkOrderEditRejected('A backup was restored. Review the restored job before editing.')
       }
       const order = await editable(id)
-      if (order.status === 'completed') throw new Error('Reopen this job before editing.')
+      if (order.status === 'completed') throw new WorkOrderEditRejected('Reopen this job before editing.')
       if (expected && String(order[expected.field] ?? '') !== expected.value) {
         throw new WorkOrderFieldConflict(String(order[expected.field] ?? ''))
       }
@@ -105,7 +108,7 @@ export const workOrdersRepo = {
   async changeLine(id: string, action: 'save' | 'remove' | 'decline' | 'restore', item: LineItem, expected?: LineItem) {
     await transaction(async () => {
       const order = await editable(id)
-      if (order.status === 'completed') throw new Error('Reopen this job before editing.')
+      if (order.status === 'completed') throw new WorkOrderEditRejected('Reopen this job before editing.')
       const lines = order.lineItems
       const declined = order.declinedItems ?? []
       const current = (action === 'restore' ? declined : lines).find(line => line.id === item.id)
