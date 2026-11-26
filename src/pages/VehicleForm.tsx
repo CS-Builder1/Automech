@@ -36,6 +36,7 @@ function VehicleEditor({ customerId, vehicleId, draft }: { customerId: string; v
   const [parent] = useState(() => draft ? readDraft(draft) : null)
   const [form, setForm] = useState(() => readIntakeForm(cacheKey, blankVehicle))
   const [decoding, setDecoding] = useState(false)
+  const decodeRequest = useRef<{ controller: AbortController; edits: Partial<typeof form> }>()
   const [decodeMsg, setDecodeMsg] = useState<string | null>(null)
   const [vinDecode, setVinDecode] = useState<Record<string, string> | undefined>()
   const [loaded, setLoaded] = useState(false)
@@ -61,20 +62,32 @@ function VehicleEditor({ customerId, vehicleId, draft }: { customerId: string; v
       }
       setLoaded(true)
     }).catch(() => { if (active) { setUnavailable(true); setLoaded(true) } })
-    return () => { active = false }
+    return () => {
+      active = false
+      decodeRequest.current?.controller.abort()
+      decodeRequest.current = undefined
+    }
   }, [customerId, vehicleId])
 
-  async function update(next: typeof form) {
+  async function update(next: typeof form, expected = form) {
     setForm(next)
     try {
-      await saveIntakeForm(cacheKey, blankVehicle, form, next)
+      await saveIntakeForm(cacheKey, blankVehicle, expected, next)
       setError('')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save this draft. Keep the page open until you add the vehicle.')
     }
   }
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    if (k === 'vin') { setVinDecode(undefined); setDecodeMsg(null) }
+    if (k === 'vin') {
+      decodeRequest.current?.controller.abort()
+      decodeRequest.current = undefined
+      setDecoding(false)
+      setVinDecode(undefined)
+      setDecodeMsg(null)
+    } else if (decodeRequest.current) {
+      Object.assign(decodeRequest.current.edits, { [k]: e.target.value })
+    }
     update({ ...form, [k]: e.target.value })
   }
 
@@ -87,10 +100,14 @@ function VehicleEditor({ customerId, vehicleId, draft }: { customerId: string; v
     setDecoding(true)
     setDecodeMsg(null)
     const controller = new AbortController()
+    const request = { controller, edits: {} as Partial<typeof form> }
+    decodeRequest.current = request
     const timeout = window.setTimeout(() => controller.abort(), 10000)
     try {
       const d = await decodeVin(vin, controller.signal)
-      update({
+      if (decodeRequest.current !== request) return
+      const latest = { ...form, ...request.edits }
+      await update({
         ...form,
         year: d.year?.toString() ?? form.year,
         make: d.make ?? form.make,
@@ -99,14 +116,20 @@ function VehicleEditor({ customerId, vehicleId, draft }: { customerId: string; v
         engine: d.engine ?? form.engine,
         type: d.type?.toLowerCase().includes('motorcycle') ? 'motorcycle'
           : d.type?.toLowerCase().includes('truck') ? 'truck' : form.type,
-      })
+        ...request.edits,
+      }, latest)
+      if (decodeRequest.current !== request) return
       setVinDecode(d.raw)
       setDecodeMsg(d.make ? `Decoded: ${[d.year, d.make, d.model].filter(Boolean).join(' ')}` : (d.errorText || 'No match found — enter details manually.'))
     } catch {
+      if (decodeRequest.current !== request) return
       setDecodeMsg('Couldn’t reach the VIN service. You may be offline — enter details manually for now.')
     } finally {
       window.clearTimeout(timeout)
-      setDecoding(false)
+      if (decodeRequest.current === request) {
+        decodeRequest.current = undefined
+        setDecoding(false)
+      }
     }
   }
 
@@ -168,7 +191,7 @@ function VehicleEditor({ customerId, vehicleId, draft }: { customerId: string; v
     <div className="mx-auto max-w-xl">
       <PageHeader title={editing ? 'Edit vehicle' : 'New vehicle'} />
       <form onSubmit={submit}>
-        <fieldset className="space-y-4" disabled={decoding || saving}>
+        <fieldset className="space-y-4" disabled={saving}>
           <Field label="VIN" htmlFor="vin" hint="Tip: decode to auto-fill year, make, model & engine.">
             <div className="flex gap-2">
               <TextInput id="vin" value={form.vin} onChange={set('vin')} className="uppercase"

@@ -46,9 +46,33 @@ try {
   await page.getByRole('link', { name: /add (a )?vehicle/i }).click()
   await editAndReload(page, '#plate', 'FLEET-16')
   assert.equal(await page.locator('#plate').inputValue(), 'FLEET-16')
+  async function startDecode(vin) {
+    let accept
+    const request = new Promise(resolve => { accept = resolve })
+    await page.route('https://vpic.nhtsa.dot.gov/**', route => accept(route), {times: 1})
+    await page.locator('#vin').fill(vin)
+    await button('Decode').click()
+    return request
+  }
+  const decodeReply = {json: {Results: [{Make: 'Honda', Model: 'Accord', ModelYear: '2003'}]},
+    headers: {'access-control-allow-origin': '*'}}
+  const obsolete = await startDecode('1HGCM82633A004353')
+  assert.equal(await page.locator('#vin').isEditable(), true)
+  await page.locator('#vin').fill('1HGCM82633A004352')
+  await obsolete.fulfill(decodeReply)
+  const pending = await startDecode('1HGCM82633A004352')
+  assert.equal(await page.locator('#make').inputValue(), '')
+  await page.locator('#plate').fill('FLEET-17')
+  await page.locator('#model').fill('Accord EX')
+  await pending.fulfill(decodeReply)
+  await button('Decode').waitFor()
+  assert.equal(await page.locator('#year').inputValue(), '2003')
+  assert.equal(await page.locator('#make').inputValue(), 'Honda')
+  assert.equal(await page.locator('#model').inputValue(), 'Accord EX')
+  assert.equal(await page.locator('#plate').inputValue(), 'FLEET-17')
   await button('Add vehicle').click()
   await page.waitForURL(/\/jobs\/new/)
-  await page.locator('#veh option:checked', { hasText: 'FLEET-16' }).waitFor({ state: 'attached' })
+  await page.locator('#veh option:checked', { hasText: 'Accord EX · FLEET-17' }).waitFor({ state: 'attached' })
   await page.reload()
   await button('Create estimate').click()
   await page.waitForURL(/\/jobs\/(?!new)[^/?]+$/)
