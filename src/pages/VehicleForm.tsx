@@ -113,10 +113,6 @@ function VehicleEditor({ customerId, vehicleId, draft }: { customerId: string; v
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     if (busy.current) return
-    if (![form.licensePlate, form.vin, form.make, form.model].some(value => value.trim())) {
-      setError('Enter a plate, VIN, make or model to identify this vehicle.')
-      return
-    }
     const mileage = parseMileage(form.mileage)
     if (Number.isNaN(mileage) || (form.year.trim() && !/^\d{4}$/.test(form.year.trim()))) {
       setError('Enter a four-digit year and whole-number mileage, or leave them blank.')

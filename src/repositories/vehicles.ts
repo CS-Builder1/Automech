@@ -4,6 +4,13 @@ import { newId, nowISO } from '@/lib/id'
 
 export type NewVehicle = Omit<Vehicle, 'id' | 'createdAt' | 'updatedAt' | 'deletedAt'>
 
+function checkIdentifier(next: NewVehicle, previous?: Vehicle) {
+  const identified = (vehicle: NewVehicle) => [vehicle.licensePlate, vehicle.vin, vehicle.make, vehicle.model].some(value => value?.trim())
+  if (!identified(next) && (!previous || identified(previous))) {
+    throw new Error('Enter a plate, VIN, make or model to identify this vehicle.')
+  }
+}
+
 async function requireOwner(id: string) {
   const customer = await db.customers.get(id)
   if (!customer || customer.deletedAt) throw new Error('Restore the customer before changing their vehicles.')
@@ -29,6 +36,7 @@ export const vehiclesRepo = {
   async create(input: NewVehicle): Promise<Vehicle> {
     return db.transaction('rw', db.vehicles, db.customers, async () => {
       await requireOwner(input.customerId)
+      checkIdentifier(input)
       const ts = nowISO()
       const vehicle: Vehicle = { ...input, id: newId(), createdAt: ts, updatedAt: ts, deletedAt: null }
       await db.vehicles.add(vehicle)
@@ -42,6 +50,7 @@ export const vehiclesRepo = {
       if (!vehicle || vehicle.deletedAt) throw new Error('This vehicle is unavailable. Restore the record to make changes.')
       if (patch.customerId && patch.customerId !== vehicle.customerId) throw new Error('The vehicle belongs to another customer.')
       await requireOwner(vehicle.customerId)
+      checkIdentifier({ ...vehicle, ...patch }, vehicle)
       await db.vehicles.update(id, { ...patch, customerId: vehicle.customerId, updatedAt: nowISO() })
     })
   },
