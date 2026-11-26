@@ -103,6 +103,14 @@ try {
   })
   await page.evaluate(async () => { (await import('/@id/__x00__virtual:billing-pages')).mount() })
   await page.getByRole('heading', { name: 'Daily close' }).waitFor()
+  for (const [name, refunds, expenses] of [
+    [/^Cash /, '$0.00', '$10.00'],
+    [/^Bank transfer /, '$150.00', '$0.00'],
+  ]) {
+    const cells = page.getByRole('row', {name}).getByRole('cell')
+    assert.equal(await cells.nth(1).innerText(), refunds)
+    assert.equal(await cells.nth(2).innerText(), expenses)
+  }
   const csvDownload = page.waitForEvent('download')
   await page.getByRole('button',{ name: 'Export daily CSV' }).click()
   assert.match((await csvDownload).suggestedFilename(), /Automech-close-.*\.csv/)

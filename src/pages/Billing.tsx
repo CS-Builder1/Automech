@@ -62,7 +62,7 @@ function DailyTotals({ movements }: { movements: Movement[] }) {
           const sum = (kind: Movement['kind']) => items.filter(r => r.kind === kind).reduce((s,r) => s + r.amount, 0)
           const incoming = sum('payment') + sum('deposit'), returned = sum('refund'), spent = sum('expense')
           return <tr key={method} className="border-t last:font-bold dark:border-slate-700"><th className="p-1 text-left">{method === 'total' ? 'Total' : tenderLabel(method as ManualMethod)}</th>
-            {[incoming, -returned, -spent, incoming+returned+spent].map((n,j) => <td key={j} className="p-1 text-right tabular-nums">{money(n)}</td>)}</tr>
+            {[incoming, Math.abs(returned), Math.abs(spent), incoming+returned+spent].map((n,j) => <td key={j} className="p-1 text-right tabular-nums">{money(n)}</td>)}</tr>
         })}</tbody>
       </table></div>
     </div>
