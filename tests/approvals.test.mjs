@@ -444,3 +444,17 @@ test('an older draft without a base can be recovered without overwriting the sav
   assert.equal(await page.evaluate(key => sessionStorage.getItem(key), key), null)
   await page.close()
 })
+
+test('deposits received display the secondary currency quoted on the job', async () => {
+  const {page} = await newJob({displayCurrency: 'XCD', pegRate: 2.7})
+  await page.evaluate(async () => {
+    const {db} = await import('/src/db/database.ts')
+    await db.settings.update('singleton', {displayCurrency: 'EUR', pegRate: 0.9})
+  })
+  await page.getByRole('button', {name: 'Record deposit'}).click()
+  await page.getByLabel('Amount (USD)').fill('10')
+  await page.getByRole('button', {name: 'Save receipt'}).click()
+  const summary = await page.getByText(/^Deposits received/).innerText()
+  assert.equal(summary, 'Deposits received $10.00 (EC$27.00)')
+  await page.close()
+})

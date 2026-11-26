@@ -37,7 +37,7 @@ export function JobBilling({ workOrder }: { workOrder: WorkOrder }) {
   }
   return <section className="card mb-4 space-y-3 p-4">
     <h2 className="font-semibold">Billing</h2>
-    {paid > 0 && <p>Deposits received {formatMoney(paid, {currency})}</p>}
+    {paid > 0 && <p>Deposits received {formatMoney(paid, {currency, displayCurrency: workOrder.displayCurrency, pegRate: workOrder.pegRate})}</p>}
     {data.parties.active && workOrder.status !== 'cancelled' && <PaymentForm workOrderId={workOrder.id} currency={currency} balance={total - paid} />}
     <PaymentLedger payments={data.payments} />
     {data.parties.active && workOrder.status === 'completed' && <div className="space-y-3 border-t border-slate-200 pt-3 dark:border-slate-700">
