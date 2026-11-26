@@ -1,4 +1,5 @@
 import type { Invoice, Payment } from '@/db/types'
+import { dateFromTimestamp } from '@/lib/businessDate'
 import { formatMoney } from '@/lib/money'
 import { lineTotal } from '@/lib/calc'
 import { tenderLabel, type Movement } from '@/repositories/billing'
@@ -23,7 +24,7 @@ export function invoiceDocument(i: Invoice): DocumentView {
   return {
     number: i.number, title: 'Invoice', shop: i.shopName ?? 'Shop', shopContact: i.shopContact,
     customer: i.customerName, customerContact: i.customerContact, terms: i.warrantyTerms,
-    details: [i.issuedDate ?? new Date(i.issuedAt).toLocaleDateString(), currency, i.workOrderNumber, i.vehicleLabel, i.dueAt && 'Due ' + i.dueAt.slice(0, 10)].filter(Boolean) as string[],
+    details: [i.issuedDate ?? dateFromTimestamp(i.issuedAt) ?? 'Date unknown', currency, i.workOrderNumber, i.vehicleLabel, i.dueAt && 'Due ' + i.dueAt.slice(0, 10)].filter(Boolean) as string[],
     headings: ['Item', 'Qty', 'Unit price', 'Amount'],
     rows: i.lineItems.map(item => [item.description, String(item.quantity), money(item.unitPrice), money(lineTotal(item))]),
     totals: [['Subtotal', money(i.subtotal)], ['Shop supplies', money(i.shopSupplies)], ['Tax', money(i.tax)],
@@ -39,7 +40,7 @@ export function receiptDocument(p: Payment, i?: Invoice): DocumentView {
   if (p.balanceAfter !== undefined) totals.push(['Balance after this receipt', money(p.balanceAfter)])
   return {
     number: p.number ?? p.id, title, shop: p.shopName ?? i?.shopName ?? 'Shop', customer: p.customerName ?? i?.customerName,
-    details: [p.recordedDate ?? new Date(p.createdAt).toLocaleDateString(), currency, p.documentNumber ?? i?.number].filter(Boolean) as string[],
+    details: [p.recordedDate ?? dateFromTimestamp(p.createdAt) ?? 'Date unknown', currency, p.documentNumber ?? i?.number].filter(Boolean) as string[],
     headings: ['Method', 'Reference'], rows: [[tenderLabel(p.method), p.reference || '—']], totals,
   }
 }

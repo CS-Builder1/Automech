@@ -3,7 +3,7 @@ import type { Expense, Invoice, Payment, PaymentMethod, WorkOrder } from '@/db/t
 import { computeTotals } from '@/lib/calc'
 import { approvalIssue } from '@/lib/approval'
 import { newId, nowISO } from '@/lib/id'
-import { localDate } from '@/lib/businessDate'
+import { dateFromTimestamp, localDate } from '@/lib/businessDate'
 import { nextNumber } from './documentNumbers'
 
 export const manualMethods = {
@@ -204,9 +204,9 @@ export interface Movement {
 
 export async function getDayClose(date: string) {
   const [payments, expenses, invoices] = await db.transaction('r', [db.payments, db.expenses, db.invoices], () => Promise.all([
-    db.payments.filter(p => (p.recordedDate ?? localDate(p.createdAt)) === date && paymentValue(p) !== 0).toArray(),
+    db.payments.filter(p => (p.recordedDate ?? dateFromTimestamp(p.createdAt)) === date && paymentValue(p) !== 0).toArray(),
     db.expenses.where('date').equals(date).toArray(),
-    db.invoices.filter(i => !i.deletedAt && (i.issuedDate ?? localDate(i.issuedAt)) === date).toArray(),
+    db.invoices.filter(i => !i.deletedAt && (i.issuedDate ?? dateFromTimestamp(i.issuedAt)) === date).toArray(),
   ]))
   const movements: Movement[] = payments.map(p => ({
     id: p.id, date, kind: p.reversesPaymentId ? 'refund' : p.isDeposit ? 'deposit' : 'payment',

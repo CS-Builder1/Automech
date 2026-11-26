@@ -79,11 +79,11 @@ const shapes: Record<string, Fields> = {
   invoices: {
     ...common, ...displayRate, number: id, workOrderId: id, customerId: id, vehicleId: id,
     ...optionalStrings('warrantyTerms', 'shopName', 'shopContact', 'customerName', 'customerContact', 'vehicleLabel', 'workOrderNumber'),
-    issuedAt: timestamp, issuedDate: optional(timestamp), dueAt: optional(timestamp), lineItems: array(line), subtotal: minor, shopSupplies: minor,
+    issuedAt: optional(timestamp), issuedDate: optional(timestamp), dueAt: optional(timestamp), lineItems: array(line), subtotal: minor, shopSupplies: minor,
     tax: minor, total: minor, amountPaid: minor, currency: optional(currency),
   },
   payments: {
-    createdAt: timestamp, method: paymentMethod, status: oneOf('pending', 'paid', 'failed', 'refunded'),
+    createdAt: optional(timestamp), method: paymentMethod, status: oneOf('pending', 'paid', 'failed', 'refunded'),
     amount: minor, invoiceId: text, ...displayRate, ...optionalStrings('number', 'reference', 'note', 'shopName', 'customerName', 'documentNumber'), recordedDate: optional(timestamp), isDeposit: optional(bool), currency: optional(currency), balanceAfter: optional(minor),
   },
   media: { createdAt: timestamp, mimeType: text, blob: (v) => v instanceof Blob },

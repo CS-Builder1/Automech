@@ -164,22 +164,51 @@ try {
       inspections: 'id, workOrderId, vehicleId, customerId, updatedAt, deletedAt', media: 'id, createdAt',
       appointments: 'id, customerId, vehicleId, workOrderId, startAt, updatedAt, deletedAt',
     })
-    await legacy.settings.add({ id: 'singleton', currency: 'XCD', shopName: 'Legacy Shop' })
     const date = new Date().toISOString()
+    await legacy.settings.add({ id: 'singleton', currency: 'XCD', shopName: 'Legacy Shop', defaultLaborRate: 9000,
+      defaultPartsMarkupPct: 0, defaultTaxRatePct: 0, shopSuppliesPct: 0, roCounter: 1000, invoiceCounter: 1002, updatedAt: date })
+    await legacy.customers.add({ id: 'old-customer', firstName: 'Jo', lastName: 'Lee', createdAt: date, updatedAt: date })
+    await legacy.vehicles.add({ id: 'old-vehicle', customerId: 'old-customer', type: 'car', createdAt: date, updatedAt: date })
+    await legacy.workOrders.add({ id: 'old-ro', number: 'RO-1000', customerId: 'old-customer', vehicleId: 'old-vehicle',
+      status: 'invoiced', lineItems: [], createdAt: date, updatedAt: date })
     await legacy.invoices.add({id:'old', number:'INV-1001', workOrderId:'old-ro', customerId:'old-customer', vehicleId:'old-vehicle',
       lineItems:[], subtotal:3000, shopSupplies:0, tax:0, total:3000, amountPaid:1000, issuedAt:date, createdAt:date, updatedAt:date})
     await legacy.payments.add({id:'old-payment', invoiceId:'old', method:'cash', status:'paid', amount:1000, createdAt:date})
+    const undatedInvoice = { ...await legacy.invoices.get('old'), id: 'undated', number: 'INV-1002' }
+    delete undatedInvoice.issuedAt
+    await legacy.invoices.add(undatedInvoice)
+    await legacy.payments.add({ id: 'undated-payment', invoiceId: 'undated', method: 'cash', status: 'paid', amount: 1000 })
     legacy.close()
     const { db } = await import('/src/db/database.ts')
-    const { recordPayment } = await import('/src/repositories/billing.ts')
+    const { recordPayment, getDayClose, localDate } = await import('/src/repositories/billing.ts')
     await db.open()
     await db.settings.update('singleton',{currency:'CAD'})
     const oldPayment = await db.payments.get('old-payment')
     const next = await recordPayment({requestId:'new-payment', invoiceId:'old', amount:500, method:'cash'})
     const invoice = await db.invoices.get('old')
-    return [oldPayment.currency, next.currency, invoice.currency, invoice.amountPaid]
+    const close = await getDayClose(localDate(new Date()))
+    return {
+      amounts: [oldPayment.currency, next.currency, invoice.currency, invoice.amountPaid],
+      invoiceDate: (await db.invoices.get('undated')).issuedDate,
+      receiptDate: (await db.payments.get('undated-payment')).recordedDate,
+      invoices: close.invoices.map(i => i.id),
+      movements: close.movements.map(m => m.id).sort(),
+    }
   })
-  assert.deepEqual(upgraded, ['XCD', 'XCD', 'XCD', 1500])
+  assert.deepEqual(upgraded.amounts, ['XCD', 'XCD', 'XCD', 1500])
+  assert.equal(upgraded.invoiceDate, undefined)
+  assert.equal(upgraded.receiptDate, undefined)
+  assert.deepEqual(upgraded.invoices, ['old'])
+  assert.deepEqual(upgraded.movements, ['new-payment', 'old-payment'])
+
+  await legacyPage.evaluate(async () => {
+    const { createBackup, inspectBackup } = await import('/src/lib/backup.ts')
+    const snapshot = await createBackup()
+    await (await inspectBackup(new File([snapshot.blob], snapshot.filename))).replaceShop()
+  })
+  await legacyPage.goto(new URL('billing', server.resolvedUrls.local[0]).href)
+  await legacyPage.getByRole('link', { name: /INV-1002.*Date unknown/ }).click()
+  await legacyPage.getByRole('button', { name: /undated-payment.*Date unknown/ }).waitFor()
   await legacyPage.close()
   console.log('Billing passed: deposit, guarded issue, immutable snapshot, concurrent retries, reversal, local-day cash close.')
 } finally {

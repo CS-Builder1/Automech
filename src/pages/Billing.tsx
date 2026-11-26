@@ -6,6 +6,7 @@ import { useSettings } from '@/hooks/useSettings'
 import { newId } from '@/lib/id'
 import { formatMoney, parseAmountToMinor } from '@/lib/money'
 import { downloadDayClose } from '@/lib/financialDocuments'
+import { dateFromTimestamp } from '@/lib/businessDate'
 import { localDate, getDayClose, recordExpense, tenderLabel, type ManualMethod, type Movement } from '@/repositories/billing'
 import { PageHeader } from '@/components/ui/Page'
 import { Button } from '@/components/ui/Button'
@@ -70,11 +71,12 @@ function DailyTotals({ movements }: { movements: Movement[] }) {
 }
 
 export function Billing() {
-  const [date, setDate] = useState(localDate())
+  const [date, setDate] = useState(() => localDate(new Date()))
   const [filter, setFilter] = useState('outstanding')
   const settings = useSettings()
   const close = useLiveQuery(() => getDayClose(date), [date])
-  const invoices = useLiveQuery(async () => (await db.invoices.orderBy('issuedAt').reverse().toArray()).filter(i => !i.deletedAt), [])
+  const invoices = useLiveQuery(async () => (await db.invoices.filter(i => !i.deletedAt).toArray())
+    .sort((a, b) => (b.issuedAt ?? '').localeCompare(a.issuedAt ?? '')), [])
   const outstanding = (invoices ?? []).filter(i => i.total > i.amountPaid)
   const filtered = filter === 'outstanding' ? outstanding : invoices ?? []
   const balances = new Map<string, number>()
@@ -93,7 +95,7 @@ export function Billing() {
       {!invoices ? <p>Loading invoices…</p> : !filtered.length ? <p className="text-sm text-slate-500">{filter === 'outstanding' ? 'No outstanding invoices.' : 'No invoices issued yet.'}</p> :
         <ul className="divide-y dark:divide-slate-700">{filtered.map(i => <li key={i.id}>
           <Link className="flex flex-wrap justify-between gap-2 py-3" to={'/billing/' + i.id}>
-            <span><strong>{i.number}</strong> · {i.customerName ?? 'Customer'}<br/><small>{i.dueAt ? 'Due ' + i.dueAt.slice(0,10) : i.issuedDate ?? new Date(i.issuedAt).toLocaleDateString()}</small></span>
+            <span><strong>{i.number}</strong> · {i.customerName ?? 'Customer'}<br/><small>{i.dueAt ? 'Due ' + i.dueAt.slice(0,10) : i.issuedDate ?? dateFromTimestamp(i.issuedAt) ?? 'Date unknown'}</small></span>
             <span>{i.total > i.amountPaid ? formatMoney(i.total - i.amountPaid, {currency: i.currency ?? 'USD', displayCurrency: i.displayCurrency, pegRate: i.pegRate}) + ' due' : 'Paid'}</span>
           </Link></li>)}</ul>}
     </section>

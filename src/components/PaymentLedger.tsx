@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { Invoice, Payment } from '@/db/types'
 import { Button } from '@/components/ui/Button'
+import { dateFromTimestamp } from '@/lib/businessDate'
 import { formatMoney, parseAmountToMinor } from '@/lib/money'
 import { newId } from '@/lib/id'
 import { printDocument, receiptDocument, shareDocument, type DocumentView } from '@/lib/financialDocuments'
@@ -88,14 +89,14 @@ export function PaymentLedger({ payments, invoice }: { payments: Payment[]; invo
   return <section className="space-y-2">
     <h3 className="font-semibold">Receipts</h3>
     <ul className="divide-y divide-slate-200 dark:divide-slate-700">
-      {[...payments].sort((a,b) => b.createdAt.localeCompare(a.createdAt)).map(p => {
+      {[...payments].sort((a,b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? '')).map(p => {
         const doc = receiptDocument(p, invoice)
         const interactive = p.status === 'paid' || Boolean(p.reversesPaymentId)
         return <li key={p.id} className="py-2">
           <button type="button" className="flex w-full items-center justify-between gap-2 text-left" aria-expanded={selected === p.id}
             onClick={() => { setSelected(selected === p.id ? '' : p.id); setRefund(''); setError('') }}>
             <span><strong>{doc.number}</strong> · {interactive ? doc.title : p.status}<br/>
-              <small>{p.recordedDate ?? new Date(p.createdAt).toLocaleDateString()} · {tenderLabel(p.method)}</small></span>
+              <small>{p.recordedDate ?? dateFromTimestamp(p.createdAt) ?? 'Date unknown'} · {tenderLabel(p.method)}</small></span>
             <span className="font-semibold tabular-nums">{formatMoney(p.amount, {currency: p.currency ?? invoice?.currency ?? 'USD', displayCurrency: p.displayCurrency, pegRate: p.pegRate})}</span>
           </button>
           {selected === p.id && <div className="mt-2 space-y-3">

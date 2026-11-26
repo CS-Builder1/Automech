@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie'
-import { localDate } from '@/lib/businessDate'
+import { dateFromTimestamp } from '@/lib/businessDate'
 import { normalizeLegacyOrder } from '@/lib/approval'
 import type {
   Customer, Vehicle, WorkOrder, Invoice, Payment,
@@ -53,14 +53,14 @@ export class AutomechDB extends Dexie {
       const invoices = new Map<string, Invoice>()
       await tx.table<Invoice>('invoices').toCollection().modify((invoice) => {
         invoice.currency ??= currency
-        invoice.issuedDate ??= localDate(invoice.issuedAt)
+        invoice.issuedDate ??= dateFromTimestamp(invoice.issuedAt)
         invoices.set(invoice.id, invoice)
       })
       await tx.table<Payment>('payments').toCollection().modify((payment) => {
         const invoice = invoices.get(payment.invoiceId)
         payment.currency ??= invoice?.currency ?? currency
         payment.workOrderId ??= invoice?.workOrderId
-        payment.recordedDate ??= localDate(payment.createdAt)
+        payment.recordedDate ??= dateFromTimestamp(payment.createdAt)
       })
     })
   }

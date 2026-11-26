@@ -180,7 +180,7 @@ export interface Invoice {
   amountPaid: number
   warrantyTerms?: string
   issuedDate?: string
-  issuedAt: ISODate
+  issuedAt?: ISODate
   dueAt?: ISODate | null
   createdAt: ISODate
   updatedAt: ISODate
@@ -208,7 +208,7 @@ export interface Payment {
   isDeposit?: boolean
   reference?: string        // external txn id / cheque no.
   note?: string
-  createdAt: ISODate
+  createdAt?: ISODate
 }
 
 export interface Expense {
