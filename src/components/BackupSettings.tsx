@@ -37,7 +37,7 @@ export function BackupSettings() {
 
   function download() {
     void perform(async () => {
-      const { blob, createdAt, filename } = await createBackup()
+      const { blob, createdAt, filename, problem } = await createBackup()
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
@@ -46,6 +46,10 @@ export function BackupSettings() {
       link.click()
       link.remove()
       setTimeout(() => URL.revokeObjectURL(url), 60_000)
+      if (problem) {
+        setError(`Manual recovery file downloaded. ${problem} Keep this file for repair. Restore requires a validated shop backup.`)
+        return
+      }
       setLastBackup(createdAt)
       try { localStorage.setItem(historyKey, createdAt) } catch { /* Download still works without localStorage. */ }
       setMessage('Download started. Keep the file somewhere private and accessible from another device.')

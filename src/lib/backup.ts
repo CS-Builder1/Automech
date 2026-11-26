@@ -1,12 +1,13 @@
 import Dexie from 'dexie'
 import { syncRestoreEpoch } from './restoreEpoch'
 import { AutomechDB, db } from '@/db/database'
-import { validateRecords, timestamp, type BackupTables } from './backupValidation'
+import { cleanLegacyNumbers, validateRecords, timestamp, type BackupTables } from './backupValidation'
 
 // Format 1: { payload: { format, version, schemaVersion, createdAt, tables }, sha256 }.
 // sha256 covers the UTF-8 bytes of JSON.stringify(payload). This detects damage,
 // not authorship. Every table includes tombstones; media.blob holds MIME type + base64.
 const format = 'automech-shop-backup'
+const recoveryFormat = 'automech-shop-recovery'
 const originalStores = ['customers', 'vehicles', 'workOrders', 'invoices', 'payments', 'inspections', 'media', 'appointments', 'settings']
 type Row = Record<string, unknown>
 const isObject = (v: unknown): v is Row => v !== null && typeof v === 'object' && !Array.isArray(v)
@@ -50,22 +51,42 @@ function decodeBlob(value: unknown): Blob {
   return new Blob([Uint8Array.from(binary, char => char.charCodeAt(0))], { type: value.type })
 }
 
-export async function createBackup() {
-  const tables = await readAll(db)
-  // The original input forms could persist NaN for blank/unparseable
-  // odometer, year or exchange rate entries. Represent missing numbers as blank.
-  for (const [table, ...fields] of [['vehicles', 'year', 'mileage'], ['workOrders', 'mileageIn', 'mileageOut'], ['settings', 'pegRate']]) {
-    for (const row of tables[table]) {
-      for (const field of fields) if (Number.isNaN(row[field])) delete row[field]
+// JSON drops undefined, turns nonfinite numbers into null, and loses the sign
+// of -0. Paths relative to tables preserve each original value unambiguously.
+function recoveryValues(tables: BackupTables) {
+  const specialValues: { path: string[]; value: string }[] = []
+  function visit(value: unknown, path: string[]) {
+    if (value === undefined || (typeof value === 'number' && (!Number.isFinite(value) || Object.is(value, -0)))) {
+      specialValues.push({ path, value: Object.is(value, -0) ? '-0' : String(value) })
+    } else if (value && typeof value === 'object') {
+      for (const [key, child] of Object.entries(value)) visit(child, [...path, key])
     }
   }
+  visit(tables, [])
+  return specialValues
+}
+
+export async function createBackup() {
+  const original = await readAll(db)
+  let tables = Dexie.deepClone(original)
+  cleanLegacyNumbers(tables)
   for (const row of tables.settings) delete row.restoreEpoch
-  validateRecords(tables)
-  for (const row of tables.media) row.blob = await encodeBlob(row.blob as Blob)
+  let problem: string | undefined
+  try {
+    validateRecords(tables)
+  } catch (cause) {
+    problem = cause instanceof Error ? cause.message : 'Shop records failed validation.'
+    tables = original
+  }
+  for (const row of tables.media) {
+    if (row.blob instanceof Blob) row.blob = await encodeBlob(row.blob)
+  }
   const createdAt = new Date().toISOString()
-  const payload = { format, version: 1, schemaVersion: db.verno, createdAt, tables }
+  const payload = { format: problem ? recoveryFormat : format, version: 1, schemaVersion: db.verno, createdAt, tables,
+    ...(problem && { problem, specialValues: recoveryValues(tables) }) }
   const blob = new Blob([JSON.stringify({ payload, sha256: await digest(payload) })], { type: 'application/json' })
-  return { blob, createdAt, filename: `automech-${createdAt.replace(/:/g, '-')}.json` }
+  const prefix = problem ? 'automech-manual-recovery' : 'automech'
+  return { blob, createdAt, filename: `${prefix}-${createdAt.replace(/:/g, '-')}.json`, problem }
 }
 
 function checkTables(input: unknown, schemaVersion: number): BackupTables {
@@ -121,6 +142,9 @@ export async function inspectBackup(file: File) {
     })
   } catch {
     throw new Error('Choose a complete Automech JSON backup file.')
+  }
+  if (isObject(archive) && isObject(archive.payload) && archive.payload.format === recoveryFormat) {
+    throw new Error('This manual recovery file requires repair. Choose a validated shop backup to restore.')
   }
   if (!isObject(archive) || !isObject(archive.payload) || archive.payload.format !== format) {
     throw new Error('This file is not an Automech shop backup.')

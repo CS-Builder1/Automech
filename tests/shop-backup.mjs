@@ -51,7 +51,7 @@ async function settingsPage() {
   return page
 }
 
-async function seed(page) {
+async function seed(page, records = fixtures) {
   return page.evaluate(async data => {
     const db = await new Promise((resolve, reject) => {
       const req = indexedDB.open('automech')
@@ -61,20 +61,38 @@ async function seed(page) {
     const names = [...db.objectStoreNames]
     const tx = db.transaction(names, 'readwrite')
     for (const name of names) for (const row of data[name] || []) {
-      if (name === 'vehicles') row.mileage = NaN // original optional numeric form fields
-      if (name === 'settings') row.pegRate = NaN
+      // Values the original numeric inputs could persist.
+      if (name === 'vehicles') Object.assign(row, { year: -2003, mileage: Number.MAX_SAFE_INTEGER + 1 })
+      if (name === 'workOrders') Object.assign(row, { mileageIn: NaN, mileageOut: 0, taxRatePct: Infinity })
+      if (name === 'workOrders' || name === 'invoices') row.lineItems[0].unitCost = Number.MAX_SAFE_INTEGER + 1
+      if (name === 'settings') Object.assign(row, { pegRate: Infinity, defaultLaborRate: -100, shopSuppliesPct: Infinity })
       if (name === 'media') row.blob = new Blob([Uint8Array.of(0, 255, 1)], { type: 'image/png' })
       tx.objectStore(name).put(row)
     }
     await new Promise((resolve, reject) => { tx.oncomplete = resolve; tx.onabort = () => reject(tx.error) })
     db.close()
-  }, fixtures)
+  }, records)
 }
 
-async function download(page) {
+async function storedRow(page, table, id) {
+  return page.evaluate(async ([table, id]) => new Promise((resolve, reject) => {
+    const open = indexedDB.open('automech')
+    open.onerror = () => reject(open.error)
+    open.onsuccess = () => {
+      const db = open.result
+      const get = db.transaction(table).objectStore(table).get(id)
+      get.onsuccess = () => resolve(get.result)
+      get.onerror = () => reject(get.error)
+      db.close()
+    }
+  }), [table, id])
+}
+
+async function download(page, filename) {
   const started = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Download backup' }).click()
   const file = await started
+  if (filename) assert.match(file.suggestedFilename(), filename)
   return JSON.parse(await readFile(await file.path(), 'utf8'))
 }
 
@@ -99,7 +117,18 @@ try {
   await seed(source)
   const archive = await download(source)
   const data = archive.payload.tables
+  assert.equal(data.vehicles[0].year, undefined)
   assert.equal(data.vehicles[0].mileage, undefined)
+  assert.equal(data.workOrders[0].mileageIn, undefined)
+  assert.equal(data.workOrders[0].mileageOut, 0)
+  assert.equal(data.workOrders[0].taxRatePct, undefined)
+  assert.equal(data.workOrders[0].lineItems[0].unitCost, undefined)
+  assert.equal(data.invoices[0].lineItems[0].unitCost, undefined)
+  assert.equal(data.workOrders[0].lineItems[0].unitPrice, 4800)
+  assert.equal(data.settings[0].defaultLaborRate, 0)
+  assert.equal(data.settings[0].shopSuppliesPct, 0)
+  assert.equal((await storedRow(source, 'vehicles', 'v')).year, -2003)
+  assert.equal((await storedRow(source, 'settings', 'singleton')).pegRate, Infinity)
   assert.equal(data.settings[0].pegRate, undefined)
   assert.equal(data.media[0].blob.base64, 'AP8B')
   assert.deepEqual(data.workOrders[0].authorizations, [approval])
@@ -108,12 +137,46 @@ try {
   assert.equal(archive.sha256, recalculate(structuredClone(archive)).sha256)
   console.log('PASS snapshot includes approvals, counters, photo bytes, and deleted records')
 
+  const damaged = await settingsPage()
+  const damagedRecords = structuredClone(fixtures)
+  damagedRecords.workOrders[0].authorization.amountAuthorized = Infinity
+  await seed(damaged, damagedRecords)
+  const recovery = await download(damaged, /manual-recovery/)
+  assert.equal(recovery.payload.format, 'automech-shop-recovery')
+  assert.equal(recovery.sha256, recalculate(structuredClone(recovery)).sha256)
+  const raw = recovery.payload.tables
+  assert.equal(raw.workOrders[0].authorization.signatureDataUrl, approval.signatureDataUrl)
+  assert.equal(raw.vehicles[0].year, -2003)
+  assert.equal(raw.media[0].blob.base64, 'AP8B')
+  assert.equal(raw.media[0].blob.type, 'image/png')
+  for (const [name, rows] of Object.entries(fixtures)) assert.equal(raw[name].length, rows.length)
+  for (const [path, value] of [
+    [['workOrders', '0', 'authorization', 'amountAuthorized'], 'Infinity'],
+    [['workOrders', '0', 'mileageIn'], 'NaN'],
+    [['settings', '0', 'pegRate'], 'Infinity'],
+  ]) {
+    assert.ok(recovery.payload.specialValues.some(entry =>
+      entry.value === value && JSON.stringify(entry.path) === JSON.stringify(path)))
+  }
+  const warning = damaged.getByRole('alert')
+  await warning.filter({ hasText: /manual recovery/i }).waitFor()
+  assert.match(await warning.textContent(), /workOrders.*w.*authorization.amountAuthorized/)
+  assert.equal(await damaged.evaluate(() => localStorage.getItem('automech.lastBackupDownload')), null)
+  assert.equal((await storedRow(damaged, 'workOrders', 'w')).authorization.amountAuthorized, Infinity)
+  await upload(damaged, recovery)
+  await warning.filter({ hasText: /manual recovery.*restore/i }).waitFor()
+  assert.equal(await damaged.getByRole('button', { name: 'Restore shop records' }).count(), 0)
+  await damaged.context().close()
+  console.log('PASS an invalid signed amount produces a labeled lossless manual recovery file')
+
   const destination = await settingsPage()
   const before = await download(destination)
   assert.equal(before.payload.tables.customers.length, 0)
 
   for (const [mutate, expected] of [
     [a => { a.payload.tables.customers[0].followUps = { wiper: { outcome: {}, contactedAt: now } }; recalculate(a) }, 'Invalid customers record'],
+    [a => { a.payload.tables.vehicles[0].year = -2003; recalculate(a) }, 'Invalid vehicles record (year)'],
+    [a => { a.payload.tables.settings[0].defaultTaxRatePct = -1; recalculate(a) }, 'Invalid settings record (defaultTaxRatePct)'],
     [a => { a.payload.createdAt = now }, 'integrity check failed'],
     [a => { a.payload.version = 999; recalculate(a) }, 'Unsupported backup version'],
     [a => { delete a.payload.tables.invoices; recalculate(a) }, 'missing the invoices table'],
@@ -133,7 +196,7 @@ try {
     assert.equal(await destination.getByRole('button', { name: 'Restore shop records' }).count(), 0)
   }
   assert.deepEqual((await download(destination)).payload.tables, before.payload.tables)
-  console.log('PASS ten invalid files rejected without changing the destination')
+  console.log('PASS invalid files rejected without changing the destination')
 
   await upload(destination, archive)
   const restore = destination.getByRole('button', { name: 'Restore shop records' })

@@ -10,17 +10,27 @@ const id = (v: unknown) => typeof v === 'string' && v.trim().length > 0
 const numeric = (v: unknown) => typeof v === 'number' && Number.isFinite(v)
 const minor = (v: unknown) => typeof v === 'number' && Number.isSafeInteger(v)
 const count = (v: unknown) => minor(v) && Number(v) >= 0
+const rate = (v: unknown) => typeof v === 'number' && v >= 0 && v <= Number.MAX_SAFE_INTEGER
+const exchangeRate = (v: unknown) => rate(v) && Number(v) > 0
 export const timestamp = (v: unknown) => typeof v === 'string' && Number.isFinite(Date.parse(v))
 const bool = (v: unknown) => typeof v === 'boolean'
 const currency = (v: unknown) => typeof v === 'string' && /^[A-Z]{3}$/.test(v)
 const oneOf = (...values: string[]) => (v: unknown) => typeof v === 'string' && values.includes(v)
-const optional = (check: Check) => (v: unknown) => v == null || check(v)
-const array = (check: Check) => (v: unknown) => Array.isArray(v) && v.every(check)
-type Check = (value: unknown) => boolean
+type Check = (value: unknown, failurePath?: string[]) => boolean
+const optional = (check: Check): Check => (value, path) => value == null || check(value, path)
+const array = (check: Check): Check => (value, path) => Array.isArray(value) &&
+  value.every((item, index) => checkChild(check, item, String(index), path))
+
+function checkChild(check: Check, value: unknown, key: string, path?: string[]) {
+  if (check(value, path)) return true
+  path?.unshift(key)
+  return false
+}
 type Fields = Record<string, Check>
 
 function fields(shape: Fields): Check {
-  return (value) => record(value) && Object.entries(shape).every(([key, check]) => check(value[key]))
+  return (value, path) => record(value) &&
+    Object.entries(shape).every(([key, check]) => checkChild(check, value[key], key, path))
 }
 
 function optionalStrings(...names: string[]): Fields {
@@ -49,7 +59,8 @@ const paymentMethod = oneOf('cash', 'card', 'bank_transfer', 'stripe', 'wipay', 
 const shapes: Record<string, Fields> = {
   customers: {
     ...common, firstName: text, lastName: text, ...optionalStrings('company', 'phone', 'email', 'address', 'notes'),
-    followUps: optional(value => record(value) && Object.values(value).every(fields({ outcome: text, contactedAt: timestamp }))),
+    followUps: optional((value, path) => record(value) && Object.entries(value).every(([key, entry]) =>
+      checkChild(fields({ outcome: text, contactedAt: timestamp }), entry, key, path))),
     taxExempt: optional(bool), laborRateOverride: optional(minor), partsMarkupOverride: optional(numeric),
   },
   vehicles: {
@@ -61,7 +72,7 @@ const shapes: Record<string, Fields> = {
     ...common, ...displayRate, number: id, customerId: id, vehicleId: id,
     status: oneOf('estimate', 'awaiting_approval', 'approved', 'in_progress', 'awaiting_parts', 'quality_check', 'completed', 'invoiced', 'cancelled'),
     ...optionalStrings('complaint', 'diagnosis', 'notes', 'technician'), mileageIn: optional(count), mileageOut: optional(count),
-    promisedAt: optional(timestamp), shopSuppliesPct: optional(numeric), taxRatePct: optional(numeric),
+    promisedAt: optional(timestamp), shopSuppliesPct: optional(rate), taxRatePct: optional(rate),
     lineItems: array(line), declinedItems: optional(array(line)),
     authorization: optional(approval), authorizations: optional(array(approval)), currency: optional(currency),
   },
@@ -87,10 +98,44 @@ const shapes: Record<string, Fields> = {
   },
   settings: {
     shopName: text, ...optionalStrings('ownerName', 'phone', 'email', 'address', 'logoDataUrl'),
-    currency, displayCurrency: optional(currency), pegRate: optional(numeric), defaultLaborRate: minor, defaultPartsMarkupPct: numeric,
-    defaultTaxRatePct: numeric, shopSuppliesPct: numeric, roCounter: count,
+    currency, displayCurrency: optional(currency), pegRate: optional(exchangeRate), defaultLaborRate: count, defaultPartsMarkupPct: rate,
+    defaultTaxRatePct: rate, shopSuppliesPct: rate, roCounter: count,
     invoiceCounter: count, receiptCounter: optional(count), updatedAt: timestamp,
   },
+}
+
+// Only clean copies of fields populated by the old numeric forms. Zero is the
+// neutral fallback for a required shop rate with no usable value.
+export function cleanLegacyNumbers(tables: BackupTables) {
+  function clean(row: Row, names: string[], valid: Check, fallback?: number) {
+    for (const name of names) {
+      const value = row[name]
+      if (typeof value !== 'number' || valid(value)) continue
+      if (fallback === undefined) delete row[name]
+      else row[name] = fallback
+    }
+  }
+  function cleanLineCosts(items: unknown) {
+    if (!Array.isArray(items)) return
+    for (const item of items) {
+      if (!record(item)) continue
+      clean(item, ['hours', 'actualHours'], rate)
+      clean(item, ['unitCost', 'hourlyCost'], count)
+    }
+  }
+  for (const row of tables.vehicles) clean(row, ['year', 'mileage'], count)
+  for (const row of tables.workOrders) {
+    clean(row, ['mileageIn', 'mileageOut'], count)
+    clean(row, ['shopSuppliesPct', 'taxRatePct'], rate)
+    cleanLineCosts(row.lineItems)
+    cleanLineCosts(row.declinedItems)
+  }
+  for (const row of tables.invoices) cleanLineCosts(row.lineItems)
+  for (const row of tables.settings) {
+    clean(row, ['defaultLaborRate'], count, 0)
+    clean(row, ['defaultPartsMarkupPct', 'defaultTaxRatePct', 'shopSuppliesPct'], rate, 0)
+    clean(row, ['pegRate'], exchangeRate)
+  }
 }
 
 const links: Record<string, Record<string, string>> = {
@@ -115,8 +160,11 @@ export function validateRecords(tables: BackupTables) {
         throw new Error(`Missing or duplicate record ID in ${table}.`)
       }
       seen.add(row.id)
+      const path: string[] = []
       for (const [field, check] of Object.entries(shape)) {
-        if (!check(row[field])) throw new Error(`Invalid ${table} record (${field}).`)
+        if (!check(row[field], path)) {
+          throw new Error(`Invalid ${table} record (${field}). Record ${row.id}, field ${[field, ...path].join('.')}.`)
+        }
       }
     }
   }

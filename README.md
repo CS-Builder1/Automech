@@ -19,6 +19,7 @@ Run `npm run build` and `npm run preview` to serve the production build with its
 - Open **Schedule** to book a bay, check pickups, contact customers, and receive parts. The repair order holds technician assignments, inspection findings, estimates and versioned customer approvals.
 - On a completed repair order, use **Issue invoice**. Record a deposit or payment when the shop receives the money. **Billing** provides receipts, outstanding balances, expenses and a daily CSV. Manual payment entries record an external transaction.
 - Use **Settings → Backup and restore** to download shop records and restore them in another browser. Store backups securely. The primary database lives in this browser profile.
+- A download named `automech-manual-recovery-…` preserves records that need repair. Keep the file and the original browser profile. In the recovery file, `payload.problem` identifies the validation failure and `payload.specialValues` lists values JSON cannot represent, with paths into `payload.tables`. After repairing the records, download a new shop backup for Restore.
 
 ## Verify changes
 
