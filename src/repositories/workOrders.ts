@@ -5,6 +5,7 @@ import { approvalHistory, approvalIssue, estimateSnapshot, needsApproval, sameEs
 import { computeTotals } from '@/lib/calc'
 import { requireCurrentDraft, type IntakeDraft } from '@/lib/intakeDraft'
 import { displayPair } from '@/lib/money'
+import { nextNumber } from './documentNumbers'
 
 export type NewWorkOrder = Omit<WorkOrder, 'id' | 'number' | 'createdAt' | 'updatedAt' | 'deletedAt'>
 
@@ -69,14 +70,14 @@ export const workOrdersRepo = {
       }
       await activeParents(input.customerId, input.vehicleId)
       const settings = await ensureSettings()
-      const counter = (settings.roCounter ?? 1000) + 1
+      const number = await nextNumber(settings, 'roCounter')
       const ts = nowISO()
       const order: WorkOrder = {
-        ...input, ...displayPair(settings.currency, settings.displayCurrency, settings.pegRate), status: 'estimate', currency: settings.currency, id: intake?.id ?? newId(), number: `RO-${counter}`,
+        ...input, ...displayPair(settings.currency, settings.displayCurrency, settings.pegRate),
+        status: 'estimate', currency: settings.currency, id: intake?.id ?? newId(), number,
         authorizations: [], authorization: undefined, createdAt: ts, updatedAt: ts, deletedAt: null,
       }
       await db.workOrders.add(order)
-      await db.settings.update('singleton', {roCounter: counter, updatedAt: ts})
       return order
     })
   },

@@ -283,6 +283,21 @@ test('the line editor prices a new part independently and accepts actual hours w
   await page.close()
 })
 
+test('concurrent repair orders skip active and archived numbers above the counter', async () => {
+  const {page, order} = await newJob()
+  const result = await page.evaluate(async existing => {
+    const {db} = await import('/src/db/database.ts')
+    const {workOrdersRepo} = await import('/src/repositories/workOrders.ts')
+    await db.workOrders.add({...existing, id: 'archived', number: 'RO-1002', deletedAt: existing.createdAt})
+    await db.settings.update('singleton', {roCounter: 1000})
+    const input = {customerId: 'c', vehicleId: 'v', status: 'estimate', lineItems: []}
+    const created = await Promise.all([workOrdersRepo.create(input), workOrdersRepo.create(input)])
+    return [created.map(job => job.number).sort(), (await db.settings.get('singleton')).roCounter]
+  }, order)
+  assert.deepEqual(result, [['RO-1003', 'RO-1004'], 1004])
+  await page.close()
+})
+
 test('an old editor cannot replay a note across a committed backup restore', async () => {
   const {page,order} = await newJob()
   const result = await page.evaluate(async id => {

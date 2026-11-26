@@ -1,9 +1,10 @@
 import { db, ensureSettings } from '@/db/database'
-import type { Expense, Invoice, Payment, PaymentMethod, ShopSettings, WorkOrder } from '@/db/types'
+import type { Expense, Invoice, Payment, PaymentMethod, WorkOrder } from '@/db/types'
 import { computeTotals } from '@/lib/calc'
 import { approvalIssue } from '@/lib/approval'
 import { newId, nowISO } from '@/lib/id'
 import { localDate } from '@/lib/businessDate'
+import { nextNumber } from './documentNumbers'
 
 export const manualMethods = {
   cash: 'Cash', card: 'Card (external terminal)', bank_transfer: 'Bank transfer',
@@ -23,16 +24,6 @@ function validDate(date: string) {
 export function paymentValue(payment: Payment) {
   if (payment.status === 'paid') return payment.amount
   return payment.status === 'refunded' && payment.reversesPaymentId ? -payment.amount : 0
-}
-
-async function nextNumber(settings: ShopSettings, key: 'invoiceCounter' | 'receiptCounter') {
-  const prefix = key === 'invoiceCounter' ? 'INV-' : 'RCT-'
-  let count = settings[key] ?? 1000
-  // Imported legacy documents may have used numbers above the saved counter.
-  const table = key === 'invoiceCounter' ? db.invoices : db.payments
-  do { count += 1 } while (await table.where('number').equals(prefix + count).count())
-  await db.settings.update('singleton', { [key]: count, updatedAt: nowISO() })
-  return prefix + count
 }
 
 function documentCurrency(source: Pick<Invoice, 'currency' | 'displayCurrency' | 'pegRate'> | undefined, fallback: string) {
