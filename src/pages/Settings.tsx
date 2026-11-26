@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import type { ShopSettings } from '@/db/types'
 import { useSettings, saveSettings } from '@/hooks/useSettings'
 import { PageHeader } from '@/components/ui/Page'
 import { BackupSettings } from '@/components/BackupSettings'
@@ -8,32 +9,36 @@ import { parseRate, parseAmountToMinor, minorToDecimal } from '@/lib/money'
 
 const CURRENCIES = ['USD', 'XCD', 'EUR', 'GBP', 'CAD', 'TTD', 'JMD']
 
+function settingsForm(settings: ShopSettings) {
+  return {
+    shopName: settings.shopName, ownerName: settings.ownerName ?? '', phone: settings.phone ?? '',
+    email: settings.email ?? '', address: settings.address ?? '',
+    currency: settings.currency, displayCurrency: settings.displayCurrency ?? '',
+    pegRate: settings.pegRate?.toString() ?? '',
+    defaultLaborRate: minorToDecimal(settings.defaultLaborRate).toString(),
+    defaultTaxRatePct: settings.defaultTaxRatePct.toString(),
+    defaultPartsMarkupPct: settings.defaultPartsMarkupPct.toString(),
+    shopSuppliesPct: settings.shopSuppliesPct.toString(),
+  }
+}
+
 export function Settings() {
   const settings = useSettings()
-  const [form, setForm] = useState({
-    shopName: '', ownerName: '', phone: '', email: '', address: '',
-    currency: 'USD', displayCurrency: '', pegRate: '',
-    defaultLaborRate: '', defaultTaxRatePct: '', defaultPartsMarkupPct: '', shopSuppliesPct: '',
-  })
+  const [edits, setEdits] = useState<Partial<ReturnType<typeof settingsForm>>>({})
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
+  if (!settings) return <p className="text-sm text-slate-400">Loading…</p>
 
-  useEffect(() => {
-    if (!settings) return
-    setForm({
-      shopName: settings.shopName, ownerName: settings.ownerName ?? '', phone: settings.phone ?? '',
-      email: settings.email ?? '', address: settings.address ?? '',
-      currency: settings.currency, displayCurrency: settings.displayCurrency ?? '',
-      pegRate: settings.pegRate?.toString() ?? '',
-      defaultLaborRate: minorToDecimal(settings.defaultLaborRate).toString(),
-      defaultTaxRatePct: settings.defaultTaxRatePct.toString(),
-      defaultPartsMarkupPct: settings.defaultPartsMarkupPct.toString(),
-      shopSuppliesPct: settings.shopSuppliesPct.toString(),
+  const persisted = settingsForm(settings)
+  const form = { ...persisted, ...edits }
+  const set = (key: keyof typeof form) => (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const value = event.target.value
+    setEdits(current => {
+      const next = { ...current, [key]: value }
+      if (value === persisted[key]) delete next[key]
+      return next
     })
-  }, [settings])
-
-  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
-    setForm((f) => ({ ...f, [k]: e.target.value }))
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -60,11 +65,10 @@ export function Settings() {
       setError(cause instanceof Error ? cause.message : 'Could not save shop settings.')
       return
     }
+    setEdits(current => current === edits ? {} : current)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
-
-  if (!settings) return <p className="text-sm text-slate-400">Loading…</p>
 
   return (
     <div className="mx-auto max-w-xl">

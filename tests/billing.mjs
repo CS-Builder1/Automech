@@ -37,7 +37,8 @@ try {
     executablePath: process.env.CHROMIUM_PATH || (existsSync('/usr/bin/chromium') ? '/usr/bin/chromium' : undefined),
     args: ['--no-sandbox'],
   })
-  const page = await browser.newPage()
+  const context = await browser.newContext()
+  const page = await context.newPage()
   await page.goto(server.resolvedUrls.local[0])
   const results = await page.evaluate(async () => {
     const { db, ensureSettings } = await import('/src/db/database.ts')
@@ -150,6 +151,32 @@ try {
   assert.doesNotMatch(docs.invoiceHtml, /PRIVATE WHOLESALER|12345678|<oil & filter>/)
   assert.match(docs.receiptHtml, /Deposit receipt RCT-/)
   assert.match(docs.receiptHtml, /200.00/)
+  // Keep a settings edit open while the cashier records a receipt in the original tab.
+  const settingsTab = await context.newPage()
+  await settingsTab.goto(new URL('settings', server.resolvedUrls.local[0]).href)
+  await settingsTab.getByLabel('Tax rate %').fill('7.25')
+  const counter = await page.evaluate(async () => {
+    const { db } = await import('/src/db/database.ts')
+    const { recordPayment } = await import('/src/repositories/billing.ts')
+    const invoice = await db.invoices.toCollection().first()
+    const receipt = await recordPayment({ invoiceId: invoice.id, requestId: 'settings-open', method: 'cash', amount: 100 })
+    await db.settings.update('singleton', { shopName: 'Cashier updated shop' })
+    return Number(receipt.number.slice(4))
+  })
+  await settingsTab.waitForFunction(() => document.querySelector('#shopName')?.value === 'Cashier updated shop')
+  assert.equal(await settingsTab.getByLabel('Tax rate %').inputValue(), '7.25')
+  await settingsTab.getByRole('button', { name: 'Save settings' }).click()
+  await settingsTab.getByText('Saved ✓').waitFor()
+  const persisted = await page.evaluate(async () => {
+    const { db } = await import('/src/db/database.ts')
+    const saved = await db.settings.get('singleton')
+    await db.settings.update('singleton', { defaultTaxRatePct: 8 })
+    return [saved.defaultTaxRatePct, saved.receiptCounter, saved.shopName]
+  })
+  assert.deepEqual(persisted, [7.25, counter, 'Cashier updated shop'])
+  await settingsTab.waitForFunction(() => document.querySelector('#tax')?.value === '8')
+  await settingsTab.close()
+
   const legacyPage = await browser.newPage()
   await legacyPage.goto(new URL('favicon.svg', server.resolvedUrls.local[0]).href)
   const upgraded = await legacyPage.evaluate(async () => {
