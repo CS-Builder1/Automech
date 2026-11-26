@@ -19,7 +19,8 @@ export async function saveAppointment(
   input: Pick<Appointment, 'title' | 'startAt' | 'endAt' | 'bay' | 'workOrderId' | 'notes'>,
   original?: Appointment,
 ) {
-  if (!input.title.trim() || !input.endAt || input.startAt >= input.endAt)
+  if (!input.title.trim()) throw Error('Enter a visit description.')
+  if (!input.endAt || input.startAt >= input.endAt)
     throw Error('Choose an end time after the start.')
   return db.transaction('rw', [db.appointments, db.workOrders, db.customers, db.vehicles], async () => {
     const originalRow = original && (await db.appointments.get(original.id))
