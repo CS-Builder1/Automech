@@ -17,16 +17,16 @@ const approval = {
 }
 const fixtures = {
   settings: [{ id: 'singleton', shopName: 'Bay One', currency: 'USD', defaultLaborRate: 4800,
-    defaultPartsMarkupPct: 10, defaultTaxRatePct: 0, shopSuppliesPct: 0, roCounter: 1042,
-    invoiceCounter: 1045, receiptCounter: 1020, updatedAt: now }],
+    defaultPartsMarkupPct: 10, defaultTaxRatePct: 0, shopSuppliesPct: 0, roCounter: 1000,
+    invoiceCounter: 1000, receiptCounter: 1000, updatedAt: now }],
   customers: [{ id: 'c', firstName: 'Sam', lastName: 'Driver', ...dates },
     { id: 'c-deleted', firstName: 'Past', lastName: 'Driver', ...dates, deletedAt: now }],
   vehicles: [{ id: 'v', type: 'car', customerId: 'c', ...dates }],
   workOrders: [{ id: 'w', number: 'RO-1042', customerId: 'c', vehicleId: 'v', status: 'invoiced', currency: 'USD',
     lineItems: [line], declinedItems: [line], authorization: approval, authorizations: [approval], ...dates }],
-  invoices: [{ id: 'i', number: 'INV-1045', customerId: 'c', vehicleId: 'v', workOrderId: 'w',
+  invoices: [{ id: 'i', number: 'INV-1005', customerId: 'c', vehicleId: 'v', workOrderId: 'w',
     issuedAt: now, lineItems: [line], subtotal: 4800, shopSupplies: 0, tax: 0, total: 4800, amountPaid: 1000, ...dates }],
-  payments: [{ id: 'p', invoiceId: 'i', method: 'cash', status: 'paid', amount: 1000, createdAt: now }],
+  payments: [{ id: 'p', number: 'RCT-1020', invoiceId: 'i', method: 'cash', status: 'paid', amount: 1000, createdAt: now }],
   appointments: [{ id: 'a', title: 'Oil change', customerId: 'c', vehicleId: 'v', startAt: now, ...dates }],
   inspections: [{ id: 'n', customerId: 'c', vehicleId: 'v', templateName: 'Arrival', workOrderId: 'w',
     items: [{ id: 'wheel', label: 'Wheel', rating: 'green', photoIds: ['photo'] }], ...dates }],
@@ -134,6 +134,9 @@ try {
   assert.deepEqual(data.workOrders[0].authorizations, [approval])
   assert.equal(data.customers.length, 2)
   assert.equal(data.settings[0].roCounter, 1042)
+  assert.equal(data.settings[0].invoiceCounter, 1005)
+  assert.equal(data.settings[0].receiptCounter, 1020)
+  assert.equal((await storedRow(source, 'settings', 'singleton')).invoiceCounter, 1000)
   assert.equal(archive.sha256, recalculate(structuredClone(archive)).sha256)
   console.log('PASS snapshot includes approvals, counters, photo bytes, and deleted records')
 
@@ -180,7 +183,7 @@ try {
     [a => { a.payload.createdAt = now }, 'integrity check failed'],
     [a => { a.payload.version = 999; recalculate(a) }, 'Unsupported backup version'],
     [a => { delete a.payload.tables.invoices; recalculate(a) }, 'missing the invoices table'],
-    [a => { a.payload.tables.settings[0].roCounter = 3; recalculate(a) }, 'behind an existing document number'],
+    [a => { a.payload.tables.settings[0].roCounter = -1; recalculate(a) }, 'Invalid settings record (roCounter)'],
     [a => { a.payload.tables.customers.push(a.payload.tables.customers[0]); recalculate(a) }, 'duplicate record ID'],
     [a => { a.payload.tables.workOrders[0].customerId = 'missing'; recalculate(a) }, 'references missing data'],
     [a => { a.payload.tables.workOrders[0].authorizations[0].snapshot = { currency: 'USD' }; recalculate(a) }, 'Invalid workOrders record'],
@@ -246,6 +249,26 @@ try {
   await destination.reload()
   assert.deepEqual((await download(destination)).payload.tables, data)
   console.log('PASS fresh-device restore, reload and re-export preserve all populated stores')
+
+  // A backup produced before counter repair can still contain a stale counter.
+  const stale = structuredClone(archive)
+  const records = stale.payload.tables
+  Object.assign(records.settings[0], { roCounter: 1000, invoiceCounter: 1000, receiptCounter: 1050 })
+  const approved = { ...approval, snapshot: { currency: 'USD', lineItems: [line], shopSuppliesPct: 0, taxRatePct: 0 } }
+  records.workOrders.push({ ...records.workOrders[0], id: 'completed', number: 'RO-1050', status: 'completed',
+    authorization: approved, authorizations: [approved] })
+  await upload(destination, recalculate(stale))
+  await confirm(destination)
+  await destination.getByText(/Restore complete/).waitFor()
+  const repaired = await storedRow(destination, 'settings', 'singleton')
+  assert.equal(repaired.roCounter, 1050)
+  assert.equal(repaired.invoiceCounter, 1005)
+  assert.equal(repaired.receiptCounter, 1050)
+  await destination.goto(origin + '/jobs/completed')
+  await destination.getByRole('button', { name: 'Issue invoice' }).click()
+  await destination.getByRole('heading', { name: 'Invoice INV-1006' }).waitFor()
+  await destination.goto(origin + '/settings')
+  console.log('PASS stale counters recover on export and restore, and the next invoice follows the highest number')
 
   // Once newer schemas are installed, mirror a backup from the original schema.
   const historical = structuredClone(archive)

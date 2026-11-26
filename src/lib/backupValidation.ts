@@ -192,7 +192,12 @@ export function validateRecords(tables: BackupTables) {
       }
     }
   }
-  // A restored counter must never issue a number already present in the backup.
+}
+
+// Legacy documents can be ahead of the shop counter. Keep a higher saved
+// counter and the implicit 1000 starting point for shops without a receipt counter.
+export function normalizeDocumentCounters(tables: BackupTables) {
+  const settings = tables.settings[0]
   for (const [table, prefix, counter] of [
     ['workOrders', 'RO-', 'roCounter'], ['invoices', 'INV-', 'invoiceCounter'], ['payments', 'RCT-', 'receiptCounter'],
   ]) {
@@ -200,9 +205,9 @@ export function validateRecords(tables: BackupTables) {
       const number = row.number
       if (typeof number !== 'string' || !number.startsWith(prefix)) continue
       const suffix = number.slice(prefix.length)
-      if (/^\d+$/.test(suffix) && Number(suffix) > Number(tables.settings[0][counter] ?? 0)) {
-        throw new Error(`The ${counter} is behind an existing document number.`)
-      }
+      if (!/^\d+$/.test(suffix)) continue
+      const value = Number(suffix)
+      if (Number.isSafeInteger(value) && value > Number(settings[counter] ?? 1000)) settings[counter] = value
     }
   }
 }

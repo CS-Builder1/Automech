@@ -1,7 +1,7 @@
 import Dexie from 'dexie'
 import { syncRestoreEpoch } from './restoreEpoch'
 import { AutomechDB, db } from '@/db/database'
-import { cleanLegacyNumbers, validateRecords, timestamp, type BackupTables } from './backupValidation'
+import { cleanLegacyNumbers, normalizeDocumentCounters, validateRecords, timestamp, type BackupTables } from './backupValidation'
 
 // Format 1: { payload: { format, version, schemaVersion, createdAt, tables }, sha256 }.
 // sha256 covers the UTF-8 bytes of JSON.stringify(payload). This detects damage,
@@ -74,6 +74,7 @@ export async function createBackup() {
   let problem: string | undefined
   try {
     validateRecords(tables)
+    normalizeDocumentCounters(tables)
   } catch (cause) {
     problem = cause instanceof Error ? cause.message : 'Shop records failed validation.'
     tables = original
@@ -158,6 +159,7 @@ export async function inspectBackup(file: File) {
   if (typeof payload.createdAt !== 'string' || !timestamp(payload.createdAt)) throw new Error('Invalid backup date.')
   let tables = checkTables(payload.tables, schema)
   if (schema < db.verno) tables = await upgradeSnapshot(tables, schema)
+  normalizeDocumentCounters(tables)
   const counts = Object.entries(tables).map(([name, rows]) => ({ name, count: rows.length }))
   return {
     createdAt: payload.createdAt,
