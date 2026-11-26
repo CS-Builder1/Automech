@@ -14,8 +14,8 @@ before(async () => {
 })
 after(async () => { await browser?.close(); await server?.close() })
 
-async function newJob(settings = {}) {
-  const page = await browser.newPage()
+async function newJob(settings = {}, context = browser) {
+  const page = await context.newPage()
   await page.goto(base)
   const order = await page.evaluate(async defaults => {
     const { db, ensureSettings } = await import('/src/db/database.ts')
@@ -292,5 +292,79 @@ test('approval identifies the vehicle and preserves the quoted exchange rate', a
     return [snapshot.currency,snapshot.displayCurrency,snapshot.pegRate]
   },order.id)
   assert.deepEqual(stored,['USD','XCD',2.7])
+  await page.close()
+})
+
+test('a rejected edit cannot replay over notes from another tab after reopening', async () => {
+  const context = await browser.newContext()
+  const {page, order} = await newJob({}, context)
+  const other = await context.newPage()
+  await other.goto(page.url())
+  const notes = other.getByLabel('Diagnosis / notes')
+  await notes.waitFor()
+  // A native write commits before Dexie's cross-tab notification reaches the open editor.
+  const writeBeforeRefresh = patch => other.evaluate(async ({id, patch}) => {
+    const {db} = await import('/src/db/database.ts')
+    const tx = db.backendDB().transaction('workOrders', 'readwrite')
+    const store = tx.objectStore('workOrders')
+    const get = store.get(id)
+    get.onsuccess = () => store.put({...get.result, ...patch})
+    await new Promise((resolve, reject) => { tx.oncomplete = resolve; tx.onabort = () => reject(tx.error) })
+  }, {id: order.id, patch})
+  await writeBeforeRefresh({status: 'completed'})
+  await page.getByLabel('Diagnosis / notes').fill('Replace pads')
+  await page.getByRole('alert').filter({hasText: 'Reopen this job'}).waitFor()
+  const key = 'automech:job-draft:initial:' + order.id + ':diagnosis'
+  assert.equal(await page.evaluate(key => sessionStorage.getItem(key), key), null)
+  await other.reload()
+  await other.getByLabel('Status', {exact: true}).selectOption('estimate')
+  await notes.fill('Replace pads and rotors')
+  await other.waitForFunction(async id => {
+    const {db} = await import('/src/db/database.ts')
+    return (await db.workOrders.get(id)).diagnosis === 'Replace pads and rotors'
+  }, order.id)
+  await page.reload()
+  assert.equal(await page.getByLabel('Diagnosis / notes').inputValue(), 'Replace pads and rotors')
+
+  // A tab killed before its write completed may still have its draft when the stored value has changed.
+  await page.evaluate(key => sessionStorage.setItem(key, JSON.stringify({base: '', value: 'Replace pads'})), key)
+  await page.reload()
+  await page.getByRole('alert').filter({hasText: /changed/i}).waitFor()
+  assert.equal(await page.getByLabel('Diagnosis / notes').inputValue(), 'Replace pads and rotors')
+  assert.equal(await page.evaluate(key => sessionStorage.getItem(key), key), null)
+  assert.equal(await other.evaluate(async id => {
+    const {db} = await import('/src/db/database.ts')
+    return (await db.workOrders.get(id)).diagnosis
+  }, order.id), 'Replace pads and rotors')
+  await writeBeforeRefresh({diagnosis: 'Rotors measured this morning'})
+  await page.getByLabel('Diagnosis / notes').fill('Replace rear pads')
+  await page.getByRole('alert').filter({hasText: /changed/i}).waitFor()
+  assert.equal(await page.getByLabel('Diagnosis / notes').inputValue(), 'Rotors measured this morning')
+  assert.equal(await page.evaluate(key => sessionStorage.getItem(key), key), null)
+  await context.close()
+})
+
+test('an older draft without a base can be recovered without overwriting the saved note', async () => {
+  const {page, order} = await newJob()
+  const saved = 'Customer reports vibration'
+  const recovered = 'Inspect front rotors'
+  const key = 'automech:job-draft:initial:' + order.id + ':diagnosis'
+  await page.evaluate(async ({id, key, saved, recovered}) => {
+    const {db} = await import('/src/db/database.ts')
+    await db.workOrders.update(id, {diagnosis: saved})
+    sessionStorage.setItem(key, recovered)
+  }, {id: order.id, key, saved, recovered})
+  const notes = page.getByLabel('Diagnosis / notes')
+  await page.reload()
+  assert.equal(await notes.inputValue(), saved)
+  await page.getByText(recovered, {exact: true}).waitFor({timeout: 2000})
+  await page.reload()
+  assert.equal(await notes.inputValue(), saved)
+  await page.getByRole('button', {name: 'Use recovered edit'}).click()
+  await page.waitForFunction(async ({id, recovered}) => {
+    const {db} = await import('/src/db/database.ts')
+    return (await db.workOrders.get(id)).diagnosis === recovered
+  }, {id: order.id, recovered})
+  assert.equal(await page.evaluate(key => sessionStorage.getItem(key), key), null)
   await page.close()
 })

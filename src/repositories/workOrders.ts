@@ -10,6 +10,12 @@ export type NewWorkOrder = Omit<WorkOrder, 'id' | 'number' | 'createdAt' | 'upda
 export type ApprovalInput = Pick<AuthorizationRecord, 'authorizedBy' | 'method' | 'note' | 'signatureDataUrl'>
 type EditableFields = Pick<WorkOrder, 'complaint' | 'diagnosis' | 'mileageIn' | 'mileageOut'>
 
+export class WorkOrderFieldConflict extends Error {
+  constructor(readonly currentValue: string) {
+    super('This field changed. Review the latest value before editing.')
+  }
+}
+
 async function activeParents(customerId: string, vehicleId: string) {
   const customer = await db.customers.get(customerId)
   const vehicle = await db.vehicles.get(vehicleId)
@@ -69,7 +75,8 @@ export const workOrdersRepo = {
     })
   },
 
-  async update(id: string, patch: Partial<EditableFields>, restoreEpoch?: string): Promise<void> {
+  async update(id: string, patch: Partial<EditableFields>, restoreEpoch?: string,
+    expected?: { field: keyof EditableFields; value: string }): Promise<void> {
     const keys: (keyof EditableFields)[] = ['complaint', 'diagnosis', 'mileageIn', 'mileageOut']
     if (Object.keys(patch).some(key => !keys.some(editableKey => editableKey === key))) {
       throw new Error('This field cannot be edited directly.')
@@ -81,6 +88,9 @@ export const workOrdersRepo = {
       }
       const order = await editable(id)
       if (order.status === 'completed') throw new Error('Reopen this job before editing.')
+      if (expected && String(order[expected.field] ?? '') !== expected.value) {
+        throw new WorkOrderFieldConflict(String(order[expected.field] ?? ''))
+      }
       await db.workOrders.update(id, { ...patch, updatedAt: nowISO() })
     })
   },
