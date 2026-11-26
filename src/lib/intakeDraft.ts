@@ -28,8 +28,8 @@ export function readDraft(id: string): StoredDraft | null {
 }
 
 function saveDraft(id: string, draft: IntakeDraft) {
-  localStorage.setItem(prefix + id, JSON.stringify({ ...draft, updatedAt: Date.now() }))
   sessionStorage.setItem(currentTab, id)
+  localStorage.setItem(prefix + id, JSON.stringify({ ...draft, updatedAt: Date.now() }))
 }
 
 function requireUnchanged<T extends object>(current: T, expected: T, fields: (keyof T)[]) {

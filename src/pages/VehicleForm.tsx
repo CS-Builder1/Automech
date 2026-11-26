@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { vehiclesRepo } from '@/repositories/vehicles'
 import { customersRepo } from '@/repositories/customers'
+import { useIntakeAutosave } from '@/hooks/useIntakeAutosave'
 import { db } from '@/db/database'
 import { readDraft, createIntakeRecord, intakePath, parseMileage, readIntakeForm, saveIntakeForm } from '@/lib/intakeDraft'
 import { decodeVin, isPlausibleVin } from '@/lib/vin'
@@ -35,6 +36,7 @@ function VehicleEditor({ customerId, vehicleId, draft }: { customerId: string; v
   const cacheKey = draft ? draft + '.vehicle.' + customerId : null
   const [parent] = useState(() => draft ? readDraft(draft) : null)
   const [form, setForm] = useState(() => readIntakeForm(cacheKey, blankVehicle))
+  const autosave = useIntakeAutosave(form, (expected, next) => saveIntakeForm(cacheKey, blankVehicle, expected, next))
   const [decoding, setDecoding] = useState(false)
   const decodeRequest = useRef<{ controller: AbortController; edits: Partial<typeof form> }>()
   const [decodeMsg, setDecodeMsg] = useState<string | null>(null)
@@ -69,10 +71,10 @@ function VehicleEditor({ customerId, vehicleId, draft }: { customerId: string; v
     }
   }, [customerId, vehicleId])
 
-  async function update(next: typeof form, expected = form) {
+  async function update(next: typeof form) {
     setForm(next)
     try {
-      await saveIntakeForm(cacheKey, blankVehicle, expected, next)
+      await autosave.save(next)
       setError('')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save this draft. Keep the page open until you add the vehicle.')
@@ -106,7 +108,6 @@ function VehicleEditor({ customerId, vehicleId, draft }: { customerId: string; v
     try {
       const d = await decodeVin(vin, controller.signal)
       if (decodeRequest.current !== request) return
-      const latest = { ...form, ...request.edits }
       await update({
         ...form,
         year: d.year?.toString() ?? form.year,
@@ -117,7 +118,7 @@ function VehicleEditor({ customerId, vehicleId, draft }: { customerId: string; v
         type: d.type?.toLowerCase().includes('motorcycle') ? 'motorcycle'
           : d.type?.toLowerCase().includes('truck') ? 'truck' : form.type,
         ...request.edits,
-      }, latest)
+      })
       if (decodeRequest.current !== request) return
       setVinDecode(d.raw)
       setDecodeMsg(d.make ? `Decoded: ${[d.year, d.make, d.model].filter(Boolean).join(' ')}` : (d.errorText || 'No match found — enter details manually.'))
@@ -163,7 +164,7 @@ function VehicleEditor({ customerId, vehicleId, draft }: { customerId: string; v
         await vehiclesRepo.update(vehicleId, payload)
         navigate(recordPath)
       } else {
-        const path = await createIntakeRecord(cacheKey, blankVehicle, form, parent, {
+        const path = await createIntakeRecord(cacheKey, blankVehicle, await autosave.lastSaved(), parent, {
           table: db.vehicles, create: () => vehiclesRepo.create(payload), path: () => recordPath,
           selection: v => ({ customerId, vehicleId: v.id }),
         })
@@ -179,7 +180,7 @@ function VehicleEditor({ customerId, vehicleId, draft }: { customerId: string; v
 
   async function cancel() {
     try {
-      await saveIntakeForm(cacheKey, blankVehicle, form, null)
+      await saveIntakeForm(cacheKey, blankVehicle, await autosave.lastSaved(), null)
       navigate(draft ? intakePath(draft) : recordPath)
     } catch (err) { setError((err as Error).message) }
   }

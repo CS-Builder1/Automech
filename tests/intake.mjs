@@ -22,10 +22,26 @@ async function editAndReload(page, selector, value) {
   assert.equal(await field.inputValue(), value)
 }
 
+async function failNextDraftSave(page, suffix = '') {
+  const id = new URL(page.url()).searchParams.get('draft')
+  assert.ok(id)
+  await page.evaluate(draftKey => {
+    const setItem = Storage.prototype.setItem
+    Storage.prototype.setItem = function (key, value) {
+      if (this === localStorage && key === draftKey) {
+        Storage.prototype.setItem = setItem
+        throw new DOMException('Device storage is full', 'QuotaExceededError')
+      }
+      return setItem.call(this, key, value)
+    }
+  }, 'automech.intake.' + id + suffix)
+}
+
 let context = await launch()
 try {
   const page = await context.newPage()
   page.setDefaultTimeout(3000)
+  page.setDefaultNavigationTimeout(15000)
   const button = (name) => page.getByRole('button', { name, exact: true })
   await page.goto(base + '/jobs/new')
   await editAndReload(page, '#complaint', 'Shudder during braking')
@@ -33,9 +49,19 @@ try {
   await page.getByRole('link', { name: /add customer/i }).click()
   await button('Create customer').click()
   assert.match(await page.getByRole('alert').innerText(), /name|company/i)
-  await page.locator('#company').fill('Harbor Fleet')
+  await failNextDraftSave(page, '.customer')
+  await page.locator('#company').fill('Harbor')
+  await page.getByRole('alert').filter({ hasText: /storage is full/i }).waitFor()
+  assert.equal(await page.locator('#company').inputValue(), 'Harbor')
+  await page.locator('#company').pressSequentially(' Depot')
+  await page.waitForFunction(() => {
+    const id = new URL(location.href).searchParams.get('draft')
+    return JSON.parse(localStorage.getItem('automech.intake.' + id + '.customer'))?.company === 'Harbor Depot'
+  }, undefined, { timeout: 3000 })
   await page.reload()
-  assert.equal(await page.locator('#company').inputValue(), 'Harbor Fleet')
+  assert.equal(await page.locator('#company').inputValue(), 'Harbor Depot')
+  await failNextDraftSave(page, '.customer')
+  await page.locator('#company').fill('Harbor Fleet')
   await button('Create customer').click()
   await page.waitForURL(/\/jobs\/new/)
   await page.reload()
@@ -70,13 +96,17 @@ try {
   assert.equal(await page.locator('#make').inputValue(), 'Honda')
   assert.equal(await page.locator('#model').inputValue(), 'Accord EX')
   assert.equal(await page.locator('#plate').inputValue(), 'FLEET-17')
+  await failNextDraftSave(page, '.vehicle.' + customerId)
+  await page.locator('#plate').fill('FLEET-18')
   await button('Add vehicle').click()
   await page.waitForURL(/\/jobs\/new/)
-  await page.locator('#veh option:checked', { hasText: 'Accord EX · FLEET-17' }).waitFor({ state: 'attached' })
+  await page.locator('#veh option:checked', { hasText: 'Accord EX · FLEET-18' }).waitFor({ state: 'attached' })
   await page.reload()
+  await failNextDraftSave(page)
+  await page.locator('#complaint').fill('Shudder during braking at speed')
   await button('Create estimate').click()
   await page.waitForURL(/\/jobs\/(?!new)[^/?]+$/)
-  assert.equal(await page.getByLabel('Complaint / concern').inputValue(), 'Shudder during braking')
+  assert.equal(await page.getByLabel('Complaint / concern').inputValue(), 'Shudder during braking at speed')
   assert.equal(await page.getByLabel('Mileage in', { exact: true }).inputValue(), '40012')
   await page.goto(base + '/jobs/new?customerId=' + customerId)
   await page.locator('#complaint').fill('A second job for Harbor Fleet')
@@ -168,6 +198,9 @@ try {
   await reopened.locator('#cust').selectOption(customerId)
   const competing = await context.newPage()
   await competing.goto(sharedURL)
+  await failNextDraftSave(reopened)
+  await reopened.locator('#complaint').fill('Unsaved brake inspection')
+  await reopened.getByRole('alert').filter({ hasText: /storage is full/i }).waitFor()
   await competing.locator('#mileage').fill('45000')
   // This tab still has the old form in memory.
   await reopened.locator('#complaint').fill('Superseded edit')
@@ -177,6 +210,7 @@ try {
   assert.equal(shared.complaint, 'A second job for Harbor Fleet')
   const submitting = await context.newPage()
   await submitting.goto(sharedURL)
+  await submitting.waitForFunction(() => document.querySelector('button[type="submit"]')?.disabled === false)
   await Promise.all([competing, submitting].map(tab => tab.getByRole('button', { name: 'Create estimate' }).click()))
   await competing.waitForURL(/\/jobs\/(?!new)[^/?]+$/)
   await submitting.waitForURL(competing.url())

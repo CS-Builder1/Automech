@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/database'
 import { workOrdersRepo } from '@/repositories/workOrders'
+import { useIntakeAutosave } from '@/hooks/useIntakeAutosave'
 import { useSettings } from '@/hooks/useSettings'
 import { beginIntake, cancelIntake, finishIntake, intakePath, otherIntakes, parseMileage, readDraft, updateIntake } from '@/lib/intakeDraft'
 import type { IntakeDraft } from '@/lib/intakeDraft'
@@ -41,6 +42,7 @@ function Intake({ id, initial, others }: {
   const navigate = useNavigate()
   const settings = useSettings()
   const [draft, setDraft] = useState(initial)
+  const autosave = useIntakeAutosave(initial, (expected, next) => updateIntake(id, expected, next))
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const busy = useRef(false)
@@ -60,7 +62,7 @@ function Intake({ id, initial, others }: {
     const next = { ...draft, ...patch }
     setDraft(next)
     try {
-      await updateIntake(id, draft, next)
+      await autosave.save(next)
       setError('')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save the intake draft. Keep this page open and free device storage.')
@@ -84,7 +86,7 @@ function Intake({ id, initial, others }: {
         lineItems: [], declinedItems: [],
         shopSuppliesPct: settings.shopSuppliesPct,
         taxRatePct: customer.taxExempt ? 0 : settings.defaultTaxRatePct,
-      }, { id, draft })
+      }, { id, draft: await autosave.lastSaved() })
       try {
         finishIntake(id)
       } finally {
@@ -146,7 +148,7 @@ function Intake({ id, initial, others }: {
           <Button full type="submit" disabled={!customer || !vehicle || !settings || saving}>Create estimate</Button>
           <Button type="button" variant="secondary" disabled={saving} onClick={async () => {
             try {
-              await cancelIntake(id, draft)
+              await cancelIntake(id, await autosave.lastSaved())
               navigate('/jobs', { replace: true })
             } catch (err) { setError((err as Error).message) }
           }}>Cancel</Button>

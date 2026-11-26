@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { customersRepo } from '@/repositories/customers'
+import { useIntakeAutosave } from '@/hooks/useIntakeAutosave'
 import { db } from '@/db/database'
 import { readDraft, createIntakeRecord, intakePath, readIntakeForm, saveIntakeForm } from '@/lib/intakeDraft'
 import { PageHeader } from '@/components/ui/Page'
@@ -24,6 +25,7 @@ function CustomerEditor({ id, draft }: { id?: string; draft: string | null }) {
   const cacheKey = draft ? draft + '.customer' : null
   const [parent] = useState(() => draft ? readDraft(draft) : null)
   const [form, setForm] = useState(() => readIntakeForm(cacheKey, blankCustomer))
+  const autosave = useIntakeAutosave(form, (expected, next) => saveIntakeForm(cacheKey, blankCustomer, expected, next))
   const [loaded, setLoaded] = useState(!id)
   const [unavailable, setUnavailable] = useState(false)
   const [error, setError] = useState('')
@@ -48,7 +50,7 @@ function CustomerEditor({ id, draft }: { id?: string; draft: string | null }) {
     const next = { ...form, [k]: e.target.value }
     setForm(next)
     try {
-      await saveIntakeForm(cacheKey, blankCustomer, form, next)
+      await autosave.save(next)
       setError('')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save this draft. Keep the page open until you create the customer.')
@@ -57,7 +59,7 @@ function CustomerEditor({ id, draft }: { id?: string; draft: string | null }) {
 
   async function cancel() {
     try {
-      await saveIntakeForm(cacheKey, blankCustomer, form, null)
+      await saveIntakeForm(cacheKey, blankCustomer, await autosave.lastSaved(), null)
       navigate(draft ? intakePath(draft) : id ? '/customers/' + id : '/customers')
     } catch (err) { setError((err as Error).message) }
   }
@@ -77,7 +79,7 @@ function CustomerEditor({ id, draft }: { id?: string; draft: string | null }) {
         await customersRepo.update(id, input)
         navigate('/customers/' + id)
       } else {
-        const path = await createIntakeRecord(cacheKey, blankCustomer, form, parent, {
+        const path = await createIntakeRecord(cacheKey, blankCustomer, await autosave.lastSaved(), parent, {
           table: db.customers, create: () => customersRepo.create(input), path: c => '/customers/' + c.id,
           selection: c => ({ customerId: c.id, vehicleId: '' }),
         })
