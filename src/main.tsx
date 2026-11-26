@@ -3,11 +3,13 @@ import { createRoot } from 'react-dom/client'
 import App from './App'
 import './index.css'
 import { ensureSettings } from './db/database'
+import { cleanAbandonedRestores } from './lib/backup'
 
 import { pruneIntakeDrafts } from './lib/intakeDraft'
 import { syncRestoreEpoch, watchForRestore } from './lib/restoreEpoch'
 
 watchForRestore()
+void cleanAbandonedRestores().catch(error => console.warn('Could not clean up temporary restore databases.', error))
 const root = createRoot(document.getElementById('root')!)
 
 async function startShop() {

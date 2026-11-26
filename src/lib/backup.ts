@@ -107,12 +107,33 @@ function checkTables(input: unknown, schemaVersion: number): BackupTables {
   return tables
 }
 
+const restorePrefix = 'automech-restore-'
+const ownerSuffix = '-owner'
+
+export async function cleanAbandonedRestores() {
+  const names = await Dexie.getDatabaseNames()
+  const restores = new Set(names.filter(name => name.startsWith(restorePrefix))
+    .map(name => name.endsWith(ownerSuffix) ? name.slice(0, -ownerSuffix.length) : name))
+  await Promise.all(Array.from(restores, async name => {
+    // This request waits while a tab holds the owner connection, including
+    // the gap between closing the old schema and opening the upgraded one.
+    await Dexie.delete(name + ownerSuffix)
+    await Dexie.delete(name)
+  }))
+}
+
 /** Run the app's own schema upgrades on an isolated copy before touching live records. */
 async function upgradeSnapshot(tables: BackupTables, oldVersion: number): Promise<BackupTables> {
-  const name = `automech-restore-${crypto.randomUUID()}`
+  const name = restorePrefix + crypto.randomUUID()
+  const owner = new Dexie(name + ownerSuffix)
+  owner.version(1).stores({})
+  // Keep this empty database open until the copy is gone. IndexedDB releases
+  // the connection automatically if the tab crashes or closes.
+  owner.on('versionchange', () => false)
   const old = new Dexie(name)
   const upgraded = new AutomechDB(name)
   try {
+    await owner.open()
     const schema: Record<string, string> = {}
     for (const tableName of Object.keys(tables)) {
       const { primKey, indexes } = db.table(tableName).schema
@@ -129,7 +150,11 @@ async function upgradeSnapshot(tables: BackupTables, oldVersion: number): Promis
   } finally {
     old.close()
     upgraded.close()
-    await Dexie.delete(name)
+    try {
+      await Dexie.delete(name)
+    } finally {
+      await owner.delete()
+    }
   }
 }
 

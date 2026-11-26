@@ -277,7 +277,67 @@ try {
   delete historical.payload.tables.workOrders[0].authorizations
   delete historical.payload.tables.workOrders[0].currency
   recalculate(historical)
+  // Hold a reader on the real v1 scratch database while a second tab boots.
+  // The reader pauses the native version upgrade until the test releases it.
+  await destination.evaluate(async () => {
+    const open = IDBFactory.prototype.open
+    IDBFactory.prototype.open = function (name, ...args) {
+      const request = open.call(this, name, ...args)
+      if (/^automech-restore-[0-9a-f-]{36}$/.test(name)) {
+        request.addEventListener('upgradeneeded', () => {
+          if (window.restoreReader) return
+          const reader = open.call(this, name)
+          reader.onsuccess = () => {
+            window.restoreReader = reader.result
+            reader.result.onversionchange = () => { window.restorePaused = name }
+          }
+        }, { once: true })
+      }
+      return request
+    }
+    for (const name of ['automech-restore-abandoned', 'another-shop']) {
+      await new Promise((resolve, reject) => {
+        const request = indexedDB.open(name)
+        request.onupgradeneeded = () => request.result.createObjectStore('customers').put({ firstName: 'Sam' }, 'c')
+        request.onsuccess = () => { request.result.close(); resolve() }
+        request.onerror = () => reject(request.error)
+      })
+    }
+  })
   await upload(destination, historical)
+  await destination.waitForFunction(() => window.restorePaused)
+  const duringRestore = await destination.context().newPage()
+  await duringRestore.addInitScript(() => {
+    const original = IDBFactory.prototype.deleteDatabase
+    window.deletionRequests = []
+    IDBFactory.prototype.deleteDatabase = function (name) {
+      window.deletionRequests.push(name)
+      return original.call(this, name)
+    }
+  })
+  await duringRestore.goto(origin + '/settings')
+  await duringRestore.getByRole('button', { name: 'Download backup' }).waitFor()
+  const remaining = await duringRestore.evaluate(async () => {
+    const deadline = performance.now() + 5000
+    let names
+    do {
+      names = (await indexedDB.databases()).map(db => db.name)
+      if (!names.includes('automech-restore-abandoned')) break
+      await new Promise(resolve => setTimeout(resolve, 25))
+    } while (performance.now() < deadline)
+    return names
+  })
+  assert.ok(!remaining.includes('automech-restore-abandoned'), 'abandoned restore database survived startup')
+  assert.ok(remaining.includes('another-shop'))
+  const activeName = await destination.evaluate(() => window.restorePaused)
+  assert.ok(remaining.includes(activeName))
+  assert.ok(!(await duringRestore.evaluate(() => window.deletionRequests)).includes(activeName))
+  await destination.evaluate(() => { window.restoreReader.close() })
+  await destination.getByRole('checkbox', { name: /Replace all shop records/ }).waitFor()
+  await duringRestore.close()
+  assert.deepEqual(await destination.evaluate(async () =>
+    (await indexedDB.databases()).filter(db => db.name.startsWith('automech-restore-'))), [])
+  console.log('PASS startup removes abandoned scratch data while an active restore in another tab completes')
   await confirm(destination)
   await destination.getByText(/Restore complete/).waitFor()
   const migrated = (await download(destination)).payload.tables
