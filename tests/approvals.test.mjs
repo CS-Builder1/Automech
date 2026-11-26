@@ -216,6 +216,34 @@ test('approval history retains the signed tax and total when discounts are re-ap
   await page.close()
 })
 
+test('issued jobs show their frozen tax, total and currency in job, history and search views', async () => {
+  const {page, order} = await newJob()
+  await page.evaluate(async job => {
+    const {db} = await import('/src/db/database.ts')
+    const lineItems = [
+      {...job.lineItems[0], taxable: true},
+      {id: 'discount', kind: 'discount', description: 'Promotion', quantity: 1, unitPrice: 1000, taxable: true},
+    ]
+    await db.workOrders.update(job.id, {status: 'invoiced', taxRatePct: 10, lineItems})
+    await db.invoices.add({
+      id: 'historical', number: 'INV-1001', workOrderId: job.id, customerId: job.customerId, vehicleId: job.vehicleId,
+      lineItems, subtotal: 9000, shopSupplies: 0, tax: 900, total: 9900, amountPaid: 0,
+      currency: 'EUR', issuedAt: job.createdAt, createdAt: job.createdAt, updatedAt: job.createdAt,
+    })
+  }, order)
+  await page.getByRole('link', {name: 'View invoice INV-1001'}).waitFor()
+  const tax = page.getByText(/^Tax(?: \(10%\))?$/).locator('..')
+  const total = page.getByText('Total', {exact: true}).locator('..')
+  assert.match(await tax.innerText(), /€9\.00/)
+  assert.match(await total.innerText(), /€99\.00/)
+  for (const route of ['customers/c', 'customers/c/vehicles/v', 'search?q=RO-1001', 'jobs?status=all']) {
+    await page.goto(new URL(route, base).href)
+    const link = page.getByRole('link', {name: /RO-1001 · Invoiced/})
+    assert.match(await link.innerText(), /€99\.00/, route)
+  }
+  await page.close()
+})
+
 test('v1 upgrade and approval checks work without Array.at and preserve legacy records', async () => {
   const page = await browser.newPage()
   // A resource with no app script opens this origin before v2 can create its database.

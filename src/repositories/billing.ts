@@ -17,6 +17,11 @@ export const tenderLabel = (method: PaymentMethod) =>
 
 export { localDate }
 
+export async function invoicesForJobs(jobs: WorkOrder[]) {
+  const invoices = await db.invoices.where('workOrderId').anyOf(jobs.map(job => job.id)).toArray()
+  return new Map(invoices.map(invoice => [invoice.workOrderId, invoice]))
+}
+
 function validDate(date: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(date) && localDate(new Date(date + 'T12:00:00')) === date
 }

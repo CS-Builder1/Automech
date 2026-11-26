@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/database'
 import { customersRepo } from '@/repositories/customers'
+import { invoicesForJobs } from '@/repositories/billing'
 import { displayCustomer, displayVehicle, isArchivedJob, lastMileage, vehiclePath } from '@/lib/records'
 import { PageHeader } from '@/components/ui/Page'
 import { Button } from '@/components/ui/Button'
@@ -15,7 +16,8 @@ export function CustomerDetail() {
     const [customer, vehicles, jobs] = await Promise.all([
       db.customers.get(id), db.vehicles.where('customerId').equals(id).toArray(), db.workOrders.where('customerId').equals(id).toArray(),
     ])
-    return { customer, vehicles, jobs: jobs.sort((a, b) => b.createdAt.localeCompare(a.createdAt)) }
+    const invoicesByJob = await invoicesForJobs(jobs)
+    return { customer, vehicles, invoicesByJob, jobs: jobs.sort((a, b) => b.createdAt.localeCompare(a.createdAt)) }
   }, [id])
   if (!records) return <p>Loading…</p>
   const { customer, vehicles, jobs } = records
@@ -56,7 +58,7 @@ export function CustomerDetail() {
       <div className="mb-2 flex items-center justify-between gap-2"><h2 className="font-semibold">Service history</h2>
         {!archived && <Link className="rounded-xl bg-slate-200 px-3 py-2 font-semibold dark:bg-slate-800" to={`/jobs/new?customerId=${id}`}>+ Start job</Link>}
       </div>
-      <ServiceHistory jobs={jobs} vehicles={vehiclesById} />
+      <ServiceHistory jobs={jobs} vehicles={vehiclesById} invoicesByJob={records.invoicesByJob} />
     </section>
     <Button variant="secondary" onClick={changeArchive}>{archived ? 'Restore customer' : 'Archive customer'}</Button>
     {error && <p role="alert">{error}</p>}

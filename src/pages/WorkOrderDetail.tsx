@@ -26,7 +26,8 @@ export function WorkOrderDetail() {
     const order = await db.workOrders.get(id)
     if (!order) return null
     const restoreEpoch = (await db.settings.get('singleton'))?.restoreEpoch ?? 'initial'
-    return { order, restoreEpoch, customer: await db.customers.get(order.customerId), vehicle: await db.vehicles.get(order.vehicleId) }
+    const invoice = await db.invoices.where('workOrderId').equals(id).first()
+    return { order, invoice, restoreEpoch, customer: await db.customers.get(order.customerId), vehicle: await db.vehicles.get(order.vehicleId) }
   }, [id])
   const [editingItem, setEditingItem] = useState<LineItem | undefined>()
   const [itemSheetOpen, setItemSheetOpen] = useState(false)
@@ -35,16 +36,19 @@ export function WorkOrderDetail() {
 
   if (data === undefined) return <p className="text-sm text-slate-400">Loading…</p>
   if (!data) return <p>Job not found.</p>
-  const { order: wo, vehicle, customer, restoreEpoch } = data
-  const money = (amount: number) => format(amount, wo)
-  const totals = computeTotals(wo)
+  const { order: wo, invoice, vehicle, customer, restoreEpoch } = data
+  const document = invoice ?? wo
+  const money = (amount: number) => format(amount, document)
+  const estimate = computeTotals(document)
+  const amounts = invoice ?? { ...estimate, subtotal: estimate.itemsSubtotal }
+  const grossProfit = amounts.subtotal + amounts.shopSupplies - estimate.partsCost - estimate.laborCost
   const history = approvalHistory(wo)
   const latest = history[history.length - 1]
   const issue = approvalIssue(wo)
   const customerName = [customer?.firstName, customer?.lastName].filter(Boolean).join(' ') || customer?.company || 'Customer'
   const archivedParent = !customer || customer.deletedAt || !vehicle || vehicle.deletedAt
   const archived = Boolean(wo.deletedAt || archivedParent)
-  const locked = archived || wo.status === 'invoiced'
+  const locked = archived || wo.status === 'invoiced' || Boolean(invoice)
   const readOnly = locked || wo.status === 'completed'
 
   async function run(action: () => Promise<void>) {
@@ -136,12 +140,12 @@ export function WorkOrderDetail() {
         {!readOnly && <Button size="sm" onClick={openNewItem}>+ Add</Button>}
       </div>
       <div className="card mb-4 divide-y divide-slate-100 dark:divide-slate-800">
-        {wo.lineItems.length === 0 ? (
+        {document.lineItems.length === 0 ? (
           <p className="px-4 py-6 text-center text-sm text-slate-500 dark:text-slate-400">
             No line items yet. Add labor and parts to build the estimate.
           </p>
         ) : (
-          wo.lineItems.map((li) => (
+          document.lineItems.map((li) => (
             <LineRow key={li.id} item={li} money={money} readOnly={readOnly} onEdit={() => openEditItem(li)} onDecline={() => run(() => workOrdersRepo.changeLine(id, 'decline', li, li))} />
           ))
         )}
@@ -149,15 +153,15 @@ export function WorkOrderDetail() {
 
       {/* Totals */}
       <div className="card mb-4 space-y-1.5 p-4 text-sm">
-        <Row label="Subtotal" value={money(totals.itemsSubtotal)} />
-        {totals.shopSupplies > 0 && <Row label={`Shop supplies (${wo.shopSuppliesPct ?? 0}%)`} value={money(totals.shopSupplies)} />}
-        {totals.tax > 0 && <Row label={`Tax (${wo.taxRatePct ?? 0}%)`} value={money(totals.tax)} />}
+        <Row label="Subtotal" value={money(amounts.subtotal)} />
+        {amounts.shopSupplies !== 0 && <Row label={invoice ? 'Shop supplies' : `Shop supplies (${wo.shopSuppliesPct ?? 0}%)`} value={money(amounts.shopSupplies)} />}
+        {amounts.tax !== 0 && <Row label={invoice ? 'Tax' : `Tax (${wo.taxRatePct ?? 0}%)`} value={money(amounts.tax)} />}
         <div className="!mt-2 flex items-center justify-between border-t border-slate-100 pt-2 text-base font-bold dark:border-slate-800">
-          <span>Total</span><span className="tabular-nums">{money(totals.total)}</span>
+          <span>Total</span><span className="tabular-nums">{money(amounts.total)}</span>
         </div>
-        {wo.lineItems.length > 0 && (
+        {document.lineItems.length > 0 && (
           <p className="!mt-2 text-xs text-slate-600 dark:text-slate-300">
-            Revenue less recorded direct costs {money(totals.grossProfit)} · parts/sublet cost {money(totals.partsCost)} · direct labor {money(totals.laborCost)}. Excludes overhead and unrecorded costs.
+            Revenue less recorded direct costs {money(grossProfit)} · parts/sublet cost {money(estimate.partsCost)} · direct labor {money(estimate.laborCost)}. Excludes overhead and unrecorded costs.
           </p>
         )}
       </div>
@@ -214,7 +218,7 @@ export function WorkOrderDetail() {
 
       {!locked && <Button variant="ghost" size="sm" onClick={() => run(archive)} className="!text-red-600">Archive job</Button>}
 
-      <JobBilling key={'billing:' + wo.id} workOrder={wo} />
+      <JobBilling key={'billing:' + wo.id} workOrder={wo} invoice={invoice} />
 
       {/* Mounted only while open so each open initializes from a clean `initial`. */}
       {!readOnly && settings && itemSheetOpen && (

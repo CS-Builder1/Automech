@@ -1,12 +1,10 @@
 import { Link } from 'react-router-dom'
-import type { Vehicle, WorkOrder } from '@/db/types'
-import { useMoney } from '@/hooks/useMoney'
-import { computeTotals } from '@/lib/calc'
+import type { Invoice, Vehicle, WorkOrder } from '@/db/types'
+import { formatJobTotal } from '@/hooks/useMoney'
 import { displayVehicle } from '@/lib/records'
 import { STATUS_META } from '@/lib/status'
 
-export function ServiceHistory({ jobs, vehicles }: { jobs: WorkOrder[]; vehicles?: Map<string, Vehicle> }) {
-  const money = useMoney()
+export function ServiceHistory({ jobs, vehicles, invoicesByJob }: { jobs: WorkOrder[]; vehicles?: Map<string, Vehicle>; invoicesByJob: Map<string, Invoice> }) {
   if (!jobs.length) return <p className="card p-4 text-sm text-slate-500">No service history yet.</p>
   return <ul className="space-y-2">
     {jobs.map((job) => {
@@ -20,7 +18,7 @@ export function ServiceHistory({ jobs, vehicles }: { jobs: WorkOrder[]; vehicles
       return <li key={job.id}><Link className="card block break-words px-4 py-3 hover:border-brand-300" to={`/jobs/${job.id}`}>
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <strong>{job.number} · {STATUS_META[job.status].label}{job.deletedAt && ' · Archived'}</strong>
-          <span>{money(computeTotals(job).total, job)}</span>
+          <span>{formatJobTotal(job, invoicesByJob.get(job.id))}</span>
         </div>
         <p className="text-sm text-slate-500">{[new Date(job.createdAt).toLocaleDateString(), vehicle && displayVehicle(vehicle), vehicle?.licensePlate, mileage].filter(Boolean).join(' · ')}</p>
         {job.complaint && <p className="mt-1 text-sm">Concern: {job.complaint}</p>}

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
-import type { WorkOrder } from '@/db/types'
+import type { Invoice, WorkOrder } from '@/db/types'
 import { db } from '@/db/database'
 import { computeTotals } from '@/lib/calc'
 import { formatMoney } from '@/lib/money'
@@ -10,7 +10,7 @@ import { issueInvoice, jobBillingParties, paymentValue } from '@/repositories/bi
 import { PaymentForm, PaymentLedger } from './PaymentLedger'
 import { Button } from './ui/Button'
 
-export function JobBilling({ workOrder }: { workOrder: WorkOrder }) {
+export function JobBilling({ workOrder, invoice }: { workOrder: WorkOrder; invoice?: Invoice }) {
   const navigate = useNavigate()
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -18,11 +18,10 @@ export function JobBilling({ workOrder }: { workOrder: WorkOrder }) {
   const [due, setDue] = useState('')
   const data = useLiveQuery(async () => ({
     parties: await jobBillingParties(workOrder),
-    invoice: await db.invoices.where('workOrderId').equals(workOrder.id).first(),
     payments: await db.payments.where('workOrderId').equals(workOrder.id).toArray(),
   }), [workOrder.id, workOrder.deletedAt, workOrder.customerId, workOrder.vehicleId])
   if (!data) return null
-  if (data.invoice) return <section className="card mb-4 p-4"><Link className="font-semibold text-brand-600" to={'/billing/' + data.invoice.id}>View invoice {data.invoice.number}</Link></section>
+  if (invoice) return <section className="card mb-4 p-4"><Link className="font-semibold text-brand-600" to={'/billing/' + invoice.id}>View invoice {invoice.number}</Link></section>
   const total = computeTotals(workOrder).total
   const paid = data.payments.reduce((sum,p) => sum + paymentValue(p), 0)
   const currency = workOrder.currency ?? 'USD'
