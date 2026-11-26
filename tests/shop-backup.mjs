@@ -211,13 +211,19 @@ try {
   const otherTab = await destination.context().newPage()
   await otherTab.goto(origin + '/settings')
   await otherTab.getByRole('button', { name: 'Download backup' }).waitFor()
+  const order = data.workOrders[0]
+  const epoch = await destination.evaluate(() => sessionStorage.getItem('automech:restore-epoch') ?? 'initial')
+  const draftKey = `automech:job-draft:${epoch}:${order.id}:complaint`
+  const draft = JSON.stringify({base: '', value: 'old notes'})
   for (const tab of [destination, otherTab]) {
-    await tab.evaluate(() => {
-      sessionStorage.setItem('automech:job-draft:w:complaint', 'old notes')
+    await tab.evaluate(({draftKey, draft}) => {
+      sessionStorage.setItem(draftKey, draft)
       sessionStorage.setItem('automech.intake.current', 'old')
-      localStorage.setItem('automech.intake.old', 'old intake')
+      localStorage.setItem('automech.intake.old', JSON.stringify({
+        customerId: '', vehicleId: '', complaint: 'old intake', mileageIn: '', updatedAt: Date.now(),
+      }))
       localStorage.setItem('unrelated-preference', 'keep')
-    })
+    }, {draftKey, draft})
   }
   // Throw after the restore has issued clears/writes. All tables must roll back.
   await destination.evaluate(() => {
@@ -231,7 +237,7 @@ try {
   await confirm(destination)
   await destination.getByRole('alert').waitFor()
   assert.deepEqual((await download(destination)).payload.tables, before.payload.tables)
-  assert.equal(await destination.evaluate(() => sessionStorage.getItem('automech:job-draft:w:complaint')), 'old notes')
+  assert.equal(await destination.evaluate(key => sessionStorage.getItem(key), draftKey), draft)
   console.log('PASS cancellation and mid-transaction failure preserve existing records')
 
   await destination.reload()
@@ -239,16 +245,43 @@ try {
   await confirm(destination)
   await destination.getByText(/Restore complete/).waitFor()
   for (const tab of [destination, otherTab]) {
-    await tab.waitForFunction(() => !sessionStorage.getItem('automech:job-draft:w:complaint'))
+    await tab.waitForFunction(key => sessionStorage.getItem(key) === null, draftKey)
     assert.equal(await tab.evaluate(() => sessionStorage.getItem('automech.intake.current')), null)
     assert.equal(await tab.evaluate(() => localStorage.getItem('automech.intake.old')), null)
     assert.equal(await tab.evaluate(() => localStorage.getItem('unrelated-preference')), 'keep')
   }
-  await otherTab.close()
+  await otherTab.goto(origin + '/jobs/' + order.id)
+  assert.equal(await otherTab.getByLabel('Complaint / concern').inputValue(), order.complaint ?? '')
   console.log('PASS successful restore invalidates stale drafts in both tabs')
   await destination.reload()
   assert.deepEqual((await download(destination)).payload.tables, data)
   console.log('PASS fresh-device restore, reload and re-export preserve all populated stores')
+
+  // Simulate an editor that missed cross-tab refresh notifications. Its database connection stays live.
+  await otherTab.addInitScript(() => {
+    Object.defineProperty(window, 'BroadcastChannel', {value: undefined})
+    window.addEventListener('storage', event => event.stopImmediatePropagation(), true)
+  })
+  await otherTab.goto(origin + '/jobs/new?' + new URLSearchParams({customerId: order.customerId, vehicleId: order.vehicleId}))
+  const complaint = otherTab.getByLabel('Complaint / concern')
+  await complaint.fill('Brake pedal vibrates')
+  await otherTab.getByRole('button', {name: 'Create estimate'}).click()
+  await otherTab.waitForURL(/\/jobs\/(?!new)[^/?]+$/)
+  assert.equal(await complaint.inputValue(), 'Brake pedal vibrates')
+  const editableId = new URL(otherTab.url()).pathname.split('/').pop()
+  const withEditableJob = await download(destination)
+  await upload(destination, withEditableJob)
+  await confirm(destination)
+  await destination.getByText(/Restore complete/).waitFor()
+  // The values and status match on both sides, so only the transaction's epoch check can reject this write.
+  await complaint.fill('Stale editor text')
+  await otherTab.getByRole('alert').filter({hasText: 'A backup was restored'}).waitFor()
+  const afterStaleWrite = await download(destination)
+  assert.equal(afterStaleWrite.payload.tables.workOrders.find(row => row.id === editableId).complaint, 'Brake pedal vibrates')
+  await otherTab.reload()
+  assert.equal(await complaint.inputValue(), 'Brake pedal vibrates')
+  await otherTab.close()
+  console.log('PASS stale editor cannot change a restored job with the same ID and base value')
 
   // A backup produced before counter repair can still contain a stale counter.
   const stale = structuredClone(archive)
