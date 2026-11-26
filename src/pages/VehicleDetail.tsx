@@ -24,7 +24,8 @@ export function VehicleDetail() {
   const mileage = lastMileage(vehicle, jobs)
 
   async function changeArchive() {
-    if (!vehicle!.deletedAt && !confirm(`Archive this vehicle with ${jobs.length} job(s)? Its service history will remain available in Archived.`)) return
+    const activeJobs = jobs.filter(job => !job.deletedAt).length
+    if (!vehicle!.deletedAt && !confirm(`Archive this vehicle with ${activeJobs} job(s)? Its service history will remain available in Archived.`)) return
     try { await vehiclesRepo.setArchived(vehicleId, !vehicle!.deletedAt); setError('') }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not update this vehicle.') }
   }

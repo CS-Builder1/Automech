@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/database'
 import { customersRepo } from '@/repositories/customers'
-import { displayCustomer, displayVehicle, lastMileage, vehiclePath } from '@/lib/records'
+import { displayCustomer, displayVehicle, isArchivedJob, lastMileage, vehiclePath } from '@/lib/records'
 import { PageHeader } from '@/components/ui/Page'
 import { Button } from '@/components/ui/Button'
 import { ServiceHistory } from '@/components/ServiceHistory'
@@ -21,9 +21,12 @@ export function CustomerDetail() {
   const { customer, vehicles, jobs } = records
   if (!customer) return <p>Customer not found. <Link to="/customers" className="underline">Back to customers</Link></p>
   const archived = Boolean(customer.deletedAt)
+  const vehiclesById = new Map(vehicles.map(v => [v.id, v]))
 
   async function changeArchive() {
-    if (!archived && !confirm(`Archive this customer with ${vehicles.length} vehicle(s) and ${jobs.length} job(s)? Their history will stay available in Archived. Restore the customer to resume work.`)) return
+    const activeVehicles = vehicles.filter(v => !v.deletedAt).length
+    const activeJobs = jobs.filter(job => !isArchivedJob(job, customer, vehiclesById.get(job.vehicleId))).length
+    if (!archived && !confirm(`Archive this customer with ${activeVehicles} vehicle(s) and ${activeJobs} job(s)? Their history will stay available in Archived. Restore the customer to resume work.`)) return
     try { await customersRepo.setArchived(id, !archived); setError('') }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not update this customer.') }
   }
@@ -53,7 +56,7 @@ export function CustomerDetail() {
       <div className="mb-2 flex items-center justify-between gap-2"><h2 className="font-semibold">Service history</h2>
         {!archived && <Link className="rounded-xl bg-slate-200 px-3 py-2 font-semibold dark:bg-slate-800" to={`/jobs/new?customerId=${id}`}>+ Start job</Link>}
       </div>
-      <ServiceHistory jobs={jobs} vehicles={new Map(vehicles.map((v) => [v.id, v]))} />
+      <ServiceHistory jobs={jobs} vehicles={vehiclesById} />
     </section>
     <Button variant="secondary" onClick={changeArchive}>{archived ? 'Restore customer' : 'Archive customer'}</Button>
     {error && <p role="alert">{error}</p>}

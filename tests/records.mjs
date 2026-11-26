@@ -39,9 +39,32 @@ try {
   await page.goto(base + '/jobs')
   await page.getByRole('searchbox').fill('ro1001')
   assert.equal(await page.getByRole('link', {name:/RO-1001/}).getAttribute('href'), new URL(job).pathname)
+  await page.evaluate(async () => {
+    const { db } = await import('/src/db/database.ts')
+    const vehicle = await db.vehicles.toCollection().first()
+    const order = await db.workOrders.toCollection().first()
+    const deletedAt = new Date().toISOString()
+    await db.vehicles.add({ ...vehicle, id: 'archived-car', make: 'Ford', deletedAt })
+    await db.workOrders.add({ ...order, id: 'deleted-job', number: 'RO-0999', deletedAt })
+    await db.workOrders.add({ ...order, id: 'job-on-archived-car', number: 'RO-0998', vehicleId: 'archived-car' })
+  })
   await page.goto(customer)
-  page.once('dialog', d => d.accept())
+  await page.getByRole('link', { name: /^Toyota Corolla/ }).click()
+  const vehiclePrompt = page.waitForEvent('dialog').then(async dialog => {
+    const message = dialog.message()
+    await dialog.dismiss()
+    return message
+  })
+  await button('Archive vehicle').click()
+  assert.match(await vehiclePrompt, /with 1 job\(s\)/)
+  await page.goto(customer)
+  const confirmation = page.waitForEvent('dialog').then(async dialog => {
+    const message = dialog.message()
+    await dialog.accept()
+    return message
+  })
   await button('Archive customer').click()
+  assert.match(await confirmation, /with 1 vehicle\(s\) and 1 job\(s\)/)
   await button('Restore customer').waitFor()
   await page.goto(base + '/search?type=vehicles')
   await page.getByRole('heading', {name:'No records found'}).waitFor()
