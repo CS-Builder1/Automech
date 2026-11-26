@@ -276,6 +276,30 @@ try {
   await firstChild.getByRole('button', {name: 'Add vehicle', exact: true}).click()
   await firstChild.locator('#veh option:checked', {hasText: 'NEW-REQUEST'}).waitFor({state: 'attached'})
   console.log('Stale tabs reuse committed intake customers and vehicles; separate requests create new records.')
+  // All three editors can still leave a draft that another tab has already canceled.
+  const abandoned = reopened
+  await abandoned.goto(base + '/jobs/new?customerId=' + customerId)
+  await abandoned.locator('#cust option:checked', {hasText: 'Harbor Fleet'}).waitFor({state: 'attached'})
+  const abandonedURL = abandoned.url()
+  const abandonedId = new URL(abandonedURL).searchParams.get('draft')
+  const canceledCustomer = vehicleEditor
+  await canceledCustomer.goto(base + '/customers/new?draft=' + abandonedId)
+  const canceledVehicle = submitting
+  await canceledVehicle.goto(base + '/customers/' + customerId + '/vehicles/new?draft=' + abandonedId)
+  const closer = competing
+  await closer.goto(abandonedURL)
+  await closer.locator('#complaint').fill('New complaint in the other tab')
+  await closer.waitForFunction(id => JSON.parse(localStorage.getItem('automech.intake.' + id)).complaint === 'New complaint in the other tab', abandonedId)
+  await abandoned.getByRole('button', {name: 'Cancel', exact: true}).click()
+  await abandoned.waitForURL(base + '/jobs', {timeout: 2500})
+  assert.equal(await closer.evaluate(id => JSON.parse(localStorage.getItem('automech.intake.' + id)).complaint, abandonedId), 'New complaint in the other tab')
+  await abandoned.goto(abandonedURL)
+  await closer.getByRole('button', {name: 'Cancel', exact: true}).click()
+  for (const editor of [abandoned, canceledCustomer, canceledVehicle]) {
+    await editor.getByRole('button', {name: 'Cancel', exact: true}).click()
+    await editor.waitForURL(base + '/jobs', {timeout: 2500})
+  }
+  assert.equal(await closer.evaluate(id => localStorage.getItem('automech.intake.' + id), abandonedId), null)
   console.log('A superseded intake cannot overwrite, resurrect or convert the active tab’s draft.')
   console.log('Browser restart recovers independent intakes and discards expired drafts and child forms.')
   console.log('Intake retained complaint, mileage and selections across customer/vehicle creation and reload.')

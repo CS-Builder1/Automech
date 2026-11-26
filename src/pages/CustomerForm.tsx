@@ -60,8 +60,12 @@ function CustomerEditor({ id, draft }: { id?: string; draft: string | null }) {
   async function cancel() {
     try {
       await saveIntakeForm(cacheKey, blankCustomer, await autosave.lastSaved(), null)
-      navigate(draft ? intakePath(draft) : id ? '/customers/' + id : '/customers')
-    } catch (err) { setError((err as Error).message) }
+    } catch {
+      // Cleanup may lose a race with another editor. Leave its saved draft intact.
+      navigate('/jobs', { replace: true })
+      return
+    }
+    navigate(draft ? intakePath(draft) : id ? '/customers/' + id : '/customers')
   }
 
   async function submit(e: React.FormEvent) {

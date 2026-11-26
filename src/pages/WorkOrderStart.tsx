@@ -149,8 +149,8 @@ function Intake({ id, initial, others }: {
           <Button type="button" variant="secondary" disabled={saving} onClick={async () => {
             try {
               await cancelIntake(id, await autosave.lastSaved())
-              navigate('/jobs', { replace: true })
-            } catch (err) { setError((err as Error).message) }
+            } catch { /* Another editor may have changed or closed the draft. */ }
+            navigate('/jobs', { replace: true })
           }}>Cancel</Button>
         </div>
       </form>

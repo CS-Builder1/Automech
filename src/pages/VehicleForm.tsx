@@ -181,8 +181,12 @@ function VehicleEditor({ customerId, vehicleId, draft }: { customerId: string; v
   async function cancel() {
     try {
       await saveIntakeForm(cacheKey, blankVehicle, await autosave.lastSaved(), null)
-      navigate(draft ? intakePath(draft) : recordPath)
-    } catch (err) { setError((err as Error).message) }
+    } catch {
+      // Cleanup may lose a race with another editor. Leave its saved draft intact.
+      navigate('/jobs', { replace: true })
+      return
+    }
+    navigate(draft ? intakePath(draft) : recordPath)
   }
 
   if (!loaded) return <p>Loading…</p>
