@@ -186,6 +186,8 @@ export function Operations() {
               <h3 className="my-2 font-semibold">{item.description}</h3>
               <OperationForm
                 className="grid gap-3 sm:grid-cols-2"
+                submitLabel="Update part"
+                submitSize="md"
                 onSubmit={async (form) => {
                   const values = new FormData(form)
                   try {
@@ -216,7 +218,6 @@ export function Operations() {
                     ))}
                   </select>
                 </label>
-                <Button className="self-end">Update part</Button>
               </OperationForm>
             </article>
           ))

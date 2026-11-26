@@ -4,7 +4,6 @@ import { db } from '@/db/database'
 import type { InspectionRating, WorkOrder } from '@/db/types'
 import { parseAmountToMinor } from '@/lib/money'
 import { OperationForm } from './OperationForm'
-import { Button } from '@/components/ui/Button'
 import { localDateTime, quoteFinding, saveFinding, updateDispatch } from '@/repositories/operations'
 
 const ratings: Record<InspectionRating, string> = {
@@ -46,6 +45,7 @@ export function JobPlanning({ job, readOnly = false }: { job: WorkOrder; readOnl
       {!closed && (
         <OperationForm
           className="my-4 space-y-3"
+          submitLabel="Save dispatch"
           onSubmit={(form) =>
             submit(
               form,
@@ -74,12 +74,13 @@ export function JobPlanning({ job, readOnly = false }: { job: WorkOrder; readOnl
               />
             </label>
           </div>
-          <Button size="sm">Save dispatch</Button>
         </OperationForm>
       )}
       {!closed && (
         <OperationForm
           className="space-y-2 border-t py-4"
+          fieldsClassName="space-y-2"
+          submitLabel="Save finding"
           onSubmit={(form) =>
             submit(
               form,
@@ -113,7 +114,6 @@ export function JobPlanning({ job, readOnly = false }: { job: WorkOrder; readOnl
             Inspection notes
             <textarea className="input" name="note" />
           </label>
-          <Button size="sm">Save finding</Button>
         </OperationForm>
       )}
       {inspections?.map((i) =>
@@ -131,6 +131,7 @@ export function JobPlanning({ job, readOnly = false }: { job: WorkOrder; readOnl
               !closed && (
                 <OperationForm
                   className="mt-2 flex flex-wrap items-end gap-2"
+                  submitLabel="Add to estimate"
                   onSubmit={(form) =>
                     submit(
                       form,
@@ -145,7 +146,6 @@ export function JobPlanning({ job, readOnly = false }: { job: WorkOrder; readOnl
                     Quoted labor for one hour
                     <input className="input" name="price" inputMode="decimal" required />
                   </label>
-                  <Button size="sm">Add to estimate</Button>
                 </OperationForm>
               )
             )}

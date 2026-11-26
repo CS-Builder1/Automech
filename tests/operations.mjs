@@ -98,17 +98,33 @@ try {
   await page.getByText('Dispatch and inspection', { exact: true }).click()
   await page.getByLabel('Assigned technician').fill('Morgan')
   await page.getByLabel('Promised pickup').fill('2026-11-24T15:00')
-  const doubleSubmit = name => page.getByRole('button', { name, exact: true }).evaluate(async button => {
-    button.form.requestSubmit()
-    button.form.requestSubmit()
-    await Promise.resolve()
-    return button.matches(':disabled')
-  })
-  const dispatchBusy = await doubleSubmit('Save dispatch')
+  async function doubleSubmit(name) {
+    const button = page.getByRole('button', {name, exact: true})
+    await button.focus()
+    const state = await button.evaluate(async button => {
+      button.form.requestSubmit(button)
+      button.form.requestSubmit(button)
+      await Promise.resolve()
+      return [document.activeElement === button, button.getAttribute('aria-disabled'), button.form.getAttribute('aria-busy')]
+    })
+    assert.deepEqual(state, [true, 'true', 'true'], name + ' keeps keyboard focus and announces its pending state')
+    return button
+  }
+  const dispatch = await doubleSubmit('Save dispatch')
   await page.getByText('Dispatch saved.').waitFor()
+  assert.ok(await dispatch.evaluate(button => document.activeElement === button))
+  const technician = page.getByLabel('Assigned technician')
+  await technician.fill('Morgan Lee')
+  await technician.press('Enter')
+  await page.waitForFunction(async () => {
+    const {db} = await import('/src/db/database.ts')
+    return (await db.workOrders.get('repair')).technician === 'Morgan Lee'
+  })
+  assert.ok(await dispatch.evaluate(button => document.activeElement === button),
+    'Pressing Enter in a field keeps focus in the dispatch form')
   await page.getByLabel('Inspection finding').fill('Inspect front caliper')
   await page.getByLabel('Condition', { exact: true }).selectOption('red')
-  const findingBusy = await doubleSubmit('Save finding')
+  await doubleSubmit('Save finding')
   await page.getByText('Finding saved.').waitFor()
   const findings = await page.evaluate(async id => {
     const { db } = await import('/src/db/database.ts')
@@ -116,7 +132,6 @@ try {
     return inspection.items.map(item => item.label)
   }, jobId)
   assert.deepEqual(findings, ['Inspect front caliper'])
-  assert.ok(dispatchBusy && findingBusy, 'Dispatch and finding submissions disable the submitter until saved')
   await page.getByLabel('Quoted labor for one hour').fill('32.50')
   await page.getByRole('button', { name: 'Add to estimate' }).click()
   await page.getByText('On estimate', { exact: true }).waitFor()
@@ -129,7 +144,7 @@ try {
   await page.getByLabel('Supplier').fill('Local Auto Parts')
   await page.getByLabel('Expected arrival').fill('2026-11-25')
   await page.getByLabel('Part status').selectOption('ordered')
-  assert.ok(await doubleSubmit('Update part'), 'A part update disables the submitter until saved')
+  await doubleSubmit('Update part')
   await page.getByText('Part updated.').waitFor()
   await page.reload()
   assert.equal(await page.getByLabel('Supplier').inputValue(), 'Local Auto Parts')
