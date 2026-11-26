@@ -112,12 +112,19 @@ function checkTables(input: unknown, schemaVersion: number): BackupTables {
 
 const restorePrefix = 'automech-restore-'
 const ownerSuffix = '-owner'
+const legacyRestoreGraceMs = 5 * 60_000
 
 export async function cleanAbandonedRestores() {
   const names = await Dexie.getDatabaseNames()
   const restores = new Set(names.filter(name => name.startsWith(restorePrefix))
     .map(name => name.endsWith(ownerSuffix) ? name.slice(0, -ownerSuffix.length) : name))
   await Promise.all(Array.from(restores, async name => {
+    if (!names.includes(name + ownerSuffix)) {
+      // An older tab can close its scratch connection between upgrade steps.
+      // Give it time to finish and remove its copy before collecting leftovers.
+      await new Promise(resolve => setTimeout(resolve, legacyRestoreGraceMs))
+      if (!(await Dexie.getDatabaseNames()).includes(name)) return
+    }
     // This request waits while a tab holds the owner connection, including
     // the gap between closing the old schema and opening the upgraded one.
     await Dexie.delete(name + ownerSuffix)

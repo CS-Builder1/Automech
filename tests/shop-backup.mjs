@@ -370,7 +370,7 @@ try {
       }
       return request
     }
-    for (const name of ['automech-restore-abandoned', 'another-shop']) {
+    for (const name of ['automech-restore-abandoned', 'automech-restore-old-bundle', 'another-shop']) {
       await new Promise((resolve, reject) => {
         const request = indexedDB.open(name)
         request.onupgradeneeded = () => request.result.createObjectStore('customers').put({ firstName: 'Sam' }, 'c')
@@ -382,6 +382,7 @@ try {
   await upload(destination, historical)
   await destination.waitForFunction(() => window.restorePaused)
   const duringRestore = await destination.context().newPage()
+  await duringRestore.clock.install()
   await duringRestore.addInitScript(() => {
     const original = IDBFactory.prototype.deleteDatabase
     window.deletionRequests = []
@@ -392,21 +393,37 @@ try {
   })
   await duringRestore.goto(origin + '/settings')
   await duringRestore.getByRole('button', { name: 'Download backup' }).waitFor()
-  const remaining = await duringRestore.evaluate(async () => {
-    const deadline = performance.now() + 5000
-    let names
-    do {
-      names = (await indexedDB.databases()).map(db => db.name)
-      if (!names.includes('automech-restore-abandoned')) break
-      await new Promise(resolve => setTimeout(resolve, 25))
-    } while (performance.now() < deadline)
-    return names
-  })
-  assert.ok(!remaining.includes('automech-restore-abandoned'), 'abandoned restore database survived startup')
-  assert.ok(remaining.includes('another-shop'))
   const activeName = await destination.evaluate(() => window.restorePaused)
-  assert.ok(remaining.includes(activeName))
+  await duringRestore.waitForFunction(name => window.deletionRequests.includes(name + '-owner'), activeName)
+  const namesDuringGrace = await duringRestore.evaluate(async () => (await indexedDB.databases()).map(info => info.name))
+  assert.ok(namesDuringGrace.includes('automech-restore-abandoned'), 'ownerless copies get time to finish')
+  assert.ok(namesDuringGrace.includes('automech-restore-old-bundle'))
+  assert.ok(namesDuringGrace.includes('another-shop'))
+  assert.ok(namesDuringGrace.includes(activeName))
   assert.ok(!(await duringRestore.evaluate(() => window.deletionRequests)).includes(activeName))
+
+  // The older bundle closes its v1 connection before requesting an upgrade.
+  // Its scratch copy must survive that gap when the new bundle starts.
+  const oldCustomer = await destination.evaluate(async () => new Promise((resolve, reject) => {
+    const name = 'automech-restore-old-bundle'
+    const upgrade = indexedDB.open(name, 2)
+    upgrade.onerror = () => reject(upgrade.error)
+    upgrade.onsuccess = () => {
+      const connection = upgrade.result
+      const get = connection.transaction('customers').objectStore('customers').get('c')
+      get.onsuccess = () => {
+        connection.close()
+        const remove = indexedDB.deleteDatabase(name)
+        remove.onsuccess = () => resolve(get.result.firstName)
+        remove.onerror = () => reject(remove.error)
+      }
+      get.onerror = () => reject(get.error)
+    }
+  }))
+  assert.equal(oldCustomer, 'Sam')
+  await duringRestore.clock.fastForward('05:01')
+  await duringRestore.waitForFunction(async () => !(await indexedDB.databases()).some(info => info.name === 'automech-restore-abandoned'))
+  assert.ok(!(await duringRestore.evaluate(() => window.deletionRequests)).includes('automech-restore-old-bundle'))
   await destination.evaluate(() => { window.restoreReader.close() })
   await destination.getByRole('checkbox', { name: /Replace all shop records/ }).waitFor()
   await duringRestore.close()
