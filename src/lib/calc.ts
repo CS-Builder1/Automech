@@ -31,7 +31,9 @@ export function computeTotals(input: {
     .reduce((sum, li) => sum + lineTotal(li), 0)
   const shopSupplies = Math.round((suppliesBase * (input.shopSuppliesPct ?? 0)) / 100)
 
-  const taxable = items.filter((li) => li.taxable).reduce((sum, li) => sum + lineTotal(li), 0)
+  const taxable = items
+    .filter((li) => li.taxable && li.kind !== 'discount')
+    .reduce((sum, li) => sum + lineTotal(li), 0)
   const tax = Math.round((taxable * (input.taxRatePct ?? 0)) / 100)
 
   const total = itemsSubtotal + shopSupplies + tax

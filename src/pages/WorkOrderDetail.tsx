@@ -177,7 +177,7 @@ export function WorkOrderDetail() {
             </summary>
             <p>Authorized by {record.authorizedBy} · {record.method.replace('_', ' ')} · {new Date(record.authorizedAt).toLocaleString()}</p>
             {record.note && <p>{record.note}</p>}
-            {record.snapshot ? <EstimateSummary snapshot={record.snapshot} /> : <p>Legacy approval. The original itemized scope was not recorded.</p>}
+            {record.snapshot ? <EstimateSummary snapshot={record.snapshot} amountAuthorized={record.amountAuthorized} /> : <p>Legacy approval. The original itemized scope was not recorded.</p>}
             {record.signatureDataUrl && <img src={record.signatureDataUrl} alt={`Signature by ${record.authorizedBy}`} className="mt-2 h-16 rounded-lg border bg-white p-1" />}
           </details>
         ))}

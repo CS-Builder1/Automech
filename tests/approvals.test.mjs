@@ -133,6 +133,65 @@ test('labor direct cost uses actual hours, independent of billed hours', async (
   await page.close()
 })
 
+test('discounts reduce the amount due after tax on the taxable subtotal', async () => {
+  const page = await browser.newPage()
+  await page.goto(new URL('favicon.svg', base).href)
+  const results = await page.evaluate(async () => {
+    const {computeTotals} = await import('/src/lib/calc.ts')
+    // Older line items can carry a taxable flag even on a discount.
+    return [false, true].map(discountTaxable => {
+      const {itemsSubtotal, taxable, tax, total} = computeTotals({
+        taxRatePct: 10,
+        lineItems: [
+          {kind: 'labor', quantity: 1, unitPrice: 10000, taxable: true},
+          {kind: 'discount', quantity: 1, unitPrice: 1000, taxable: discountTaxable},
+        ],
+      })
+      return {itemsSubtotal, taxable, tax, total}
+    })
+  })
+  const expected = {itemsSubtotal: 9000, taxable: 10000, tax: 1000, total: 10000}
+  assert.deepEqual(results, [expected, expected])
+  await page.close()
+})
+
+test('approval history retains the signed tax and total when discounts are re-approved under a new tax rule', async () => {
+  const {page, order} = await newJob()
+  await page.evaluate(async job => {
+    const {db} = await import('/src/db/database.ts')
+    const {estimateSnapshot} = await import('/src/lib/approval.ts')
+    const lineItems = [
+      {...job.lineItems[0], taxable: true},
+      {id: 'discount', kind: 'discount', description: 'Promotion', quantity: 1, unitPrice: 1000, taxable: true},
+    ]
+    const snapshot = estimateSnapshot({...job, lineItems, taxRatePct: 10})
+    const record = {
+      id: 'legacy', revision: 1, authorizedBy: 'Grace', method: 'phone', authorizedAt: job.createdAt,
+      amountAuthorized: 9900, currency: 'USD', snapshot,
+    }
+    await db.workOrders.update(job.id, {status: 'approved', lineItems, taxRatePct: 10, authorization: record, authorizations: [record]})
+  }, order)
+  const history = revision => page.locator('details').filter({has: page.locator('summary', {hasText: 'Approval ' + revision})})
+  const prior = history(1)
+  await prior.waitFor()
+  assert.match(await prior.getByRole('listitem').filter({hasText: 'Promotion'}).innerText(), /taxable/)
+  assert.match(await prior.innerText(), /Tax \(10%\): \$9\.00/)
+  assert.match(await prior.innerText(), /Authorized total \(USD\) \$99\.00/)
+
+  await page.getByRole('button', {name: 'Update', exact: true}).click()
+  const sheet = page.getByRole('dialog')
+  assert.doesNotMatch(await sheet.getByRole('listitem').filter({hasText: 'Promotion'}).innerText(), /taxable/)
+  assert.match(await sheet.innerText(), /Tax \(10%\): \$10\.00/)
+  assert.match(await sheet.innerText(), /Authorized total \(USD\) \$100\.00/)
+  await sheet.getByLabel('How was it authorized?').selectOption('phone')
+  await sheet.getByRole('button', {name: 'Record approval'}).click()
+  const current = history(2)
+  await current.waitFor()
+  assert.match(await current.innerText(), /Tax \(10%\): \$10\.00/)
+  assert.match(await current.innerText(), /Authorized total \(USD\) \$100\.00/)
+  await page.close()
+})
+
 test('v1 upgrade and approval checks work without Array.at and preserve legacy records', async () => {
   const page = await browser.newPage()
   // A resource with no app script opens this origin before v2 can create its database.

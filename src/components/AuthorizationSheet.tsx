@@ -14,8 +14,12 @@ const METHODS: { value: AuthMethod; label: string }[] = [
   { value: 'email', label: 'Email' }, { value: 'online', label: 'Online' },
 ]
 
-export function EstimateSummary({ snapshot }: { snapshot: EstimateSnapshot }) {
+export function EstimateSummary({ snapshot, amountAuthorized }: { snapshot: EstimateSnapshot; amountAuthorized?: number }) {
   const totals = computeTotals(snapshot)
+  const total = amountAuthorized ?? totals.total
+  // Approval records freeze the total. The snapshot fixes the line amounts and supplies,
+  // leaving the tax originally approved even if the shop's discount rule has changed.
+  const tax = total - totals.itemsSubtotal - totals.shopSupplies
   const money = (amount: number) => formatMoney(amount, snapshot)
   return (
     <div className="space-y-2 rounded-xl border border-slate-300 p-3 text-sm dark:border-slate-600">
@@ -26,14 +30,14 @@ export function EstimateSummary({ snapshot }: { snapshot: EstimateSnapshot }) {
         {snapshot.lineItems.map(line => (
           <li key={line.id} className="flex justify-between gap-2 py-1.5">
             <span>{line.description}{line.partNumber && ` · ${line.partNumber}`}<br />
-              <span className="text-xs">{line.quantity} {line.kind === 'labor' ? 'hr' : '×'} at {money(line.unitPrice)}{line.taxable && ' · taxable'}</span></span>
+              <span className="text-xs">{line.quantity} {line.kind === 'labor' ? 'hr' : '×'} at {money(line.unitPrice)}{line.taxable && (line.kind !== 'discount' || tax < totals.tax) && ' · taxable'}</span></span>
             <span>{money(lineTotal(line))}</span>
           </li>
         ))}
       </ul>
       {totals.shopSupplies !== 0 && <p>Shop supplies ({snapshot.shopSuppliesPct}%): {money(totals.shopSupplies)}</p>}
-      {totals.tax !== 0 && <p>Tax ({snapshot.taxRatePct}%): {money(totals.tax)}</p>}
-      <p className="font-semibold">Authorized total ({snapshot.currency}) {money(totals.total)}</p>
+      {tax !== 0 && <p>Tax ({snapshot.taxRatePct}%): {money(tax)}</p>}
+      <p className="font-semibold">Authorized total ({snapshot.currency}) {money(total)}</p>
     </div>
   )
 }
