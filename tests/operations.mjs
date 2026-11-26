@@ -18,6 +18,8 @@ try {
   await page.goto(origin)
   await page.getByRole('link', { name: 'Schedule', exact: true }).click()
   await page.getByRole('button', { name: 'Book appointment' }).click()
+  assert.ok(await page.getByLabel('Visit description').evaluate(input => document.activeElement === input),
+    'The visit description should receive focus when the booking sheet opens')
   await page.getByLabel('Visit description').fill('Brake diagnosis')
   await page.getByLabel('Bay').fill('Bay 1')
   await page.getByLabel('Starts').fill('2026-11-24T09:00')

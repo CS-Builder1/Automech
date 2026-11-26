@@ -57,7 +57,7 @@ export function AppointmentForm({ original, day, jobs, linkedJob, onClose, onSav
       <form className="space-y-4" onSubmit={save}>
         <label className="block">
           Visit description
-          <input autoFocus className="input" name="title" required defaultValue={original?.title} />
+          <input data-initial-focus className="input" name="title" required defaultValue={original?.title} />
         </label>
         <label className="block">
           Starts
