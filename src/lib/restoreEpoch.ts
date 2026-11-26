@@ -19,8 +19,8 @@ export function syncRestoreEpoch(epoch: string) {
       sessionStorage.setItem(epochKey, epoch)
     }
   } catch {
-    // A browser may disable Web Storage independently of IndexedDB. Job edits
-    // also check the epoch in the database transaction that persists them.
+    // When Web Storage is unavailable, workOrdersRepo.update still checks the
+    // epoch for complaint, diagnosis and mileage edits made through WorkOrderField.
   }
 }
 
