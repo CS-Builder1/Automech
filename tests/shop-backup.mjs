@@ -11,6 +11,7 @@ const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PAT
 const now = '2025-04-08T12:00:00.000Z'
 const dates = { createdAt: now, updatedAt: now }
 const line = { id: 'l', description: 'Oil change', kind: 'labor', taxable: true, quantity: 1, unitPrice: 4800 }
+const coreCredit = { id: 'credit', description: 'Core credit', kind: 'part', taxable: false, quantity: 1, unitPrice: 0, unitCost: -1250 }
 const approval = {
   authorizedBy: 'Test Driver', method: 'signature', authorizedAt: now, amountAuthorized: 4800,
   signatureDataUrl: 'data:image/png;base64,YWJj',
@@ -23,9 +24,9 @@ const fixtures = {
     { id: 'c-deleted', firstName: 'Past', lastName: 'Driver', ...dates, deletedAt: now }],
   vehicles: [{ id: 'v', type: 'car', customerId: 'c', ...dates }],
   workOrders: [{ id: 'w', number: 'RO-1042', customerId: 'c', vehicleId: 'v', status: 'invoiced', currency: 'USD',
-    lineItems: [line], declinedItems: [line], authorization: approval, authorizations: [approval], ...dates }],
+    lineItems: [line, coreCredit], declinedItems: [line], authorization: approval, authorizations: [approval], ...dates }],
   invoices: [{ id: 'i', number: 'INV-1005', customerId: 'c', vehicleId: 'v', workOrderId: 'w',
-    issuedAt: now, lineItems: [line], subtotal: 4800, shopSupplies: 0, tax: 0, total: 4800, amountPaid: 1000, ...dates }],
+    issuedAt: now, lineItems: [line, coreCredit], subtotal: 4800, shopSupplies: 0, tax: 0, total: 4800, amountPaid: 1000, ...dates }],
   payments: [{ id: 'p', number: 'RCT-1020', invoiceId: 'i', method: 'cash', status: 'paid', amount: 1000, createdAt: now }],
   appointments: [{ id: 'a', title: 'Oil change', customerId: 'c', vehicleId: 'v', startAt: now, ...dates }],
   inspections: [{ id: 'n', customerId: 'c', vehicleId: 'v', templateName: 'Arrival', workOrderId: 'w',
@@ -125,6 +126,8 @@ try {
   assert.equal(data.workOrders[0].lineItems[0].unitCost, undefined)
   assert.equal(data.invoices[0].lineItems[0].unitCost, undefined)
   assert.equal(data.workOrders[0].lineItems[0].unitPrice, 4800)
+  assert.equal(data.workOrders[0].lineItems[1].unitCost, -1250)
+  assert.equal(data.invoices[0].lineItems[1].unitCost, -1250)
   assert.equal(data.settings[0].defaultLaborRate, 0)
   assert.equal(data.settings[0].shopSuppliesPct, 0)
   assert.equal((await storedRow(source, 'vehicles', 'v')).year, -2003)
@@ -255,6 +258,7 @@ try {
   console.log('PASS successful restore invalidates stale drafts in both tabs')
   await destination.reload()
   assert.deepEqual((await download(destination)).payload.tables, data)
+  assert.equal((await storedRow(destination, 'workOrders', 'w')).lineItems[1].unitCost, -1250)
   console.log('PASS fresh-device restore, reload and re-export preserve all populated stores')
 
   // Simulate an editor that missed cross-tab refresh notifications. Its database connection stays live.
@@ -287,7 +291,7 @@ try {
   const stale = structuredClone(archive)
   const records = stale.payload.tables
   Object.assign(records.settings[0], { roCounter: 1000, invoiceCounter: 1000, receiptCounter: 1050 })
-  const approved = { ...approval, snapshot: { currency: 'USD', lineItems: [line], shopSuppliesPct: 0, taxRatePct: 0 } }
+  const approved = { ...approval, snapshot: { currency: 'USD', lineItems: [line, coreCredit], shopSuppliesPct: 0, taxRatePct: 0 } }
   records.workOrders.push({ ...records.workOrders[0], id: 'completed', number: 'RO-1050', status: 'completed',
     authorization: approved, authorizations: [approved] })
   await upload(destination, recalculate(stale))

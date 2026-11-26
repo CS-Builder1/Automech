@@ -119,8 +119,8 @@ export function cleanLegacyNumbers(tables: BackupTables) {
     if (!Array.isArray(items)) return
     for (const item of items) {
       if (!record(item)) continue
-      clean(item, ['hours', 'actualHours'], rate)
-      clean(item, ['unitCost', 'hourlyCost'], count)
+      clean(item, ['hours', 'actualHours'], numeric)
+      clean(item, ['unitCost', 'hourlyCost'], minor)
     }
   }
   for (const row of tables.vehicles) clean(row, ['year', 'mileage'], count)
