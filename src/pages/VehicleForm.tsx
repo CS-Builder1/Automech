@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { vehiclesRepo } from '@/repositories/vehicles'
 import { customersRepo } from '@/repositories/customers'
-import { afterRecordCreated, intakePath, parseMileage, readIntakeForm, requireDraft, saveIntakeForm } from '@/lib/intakeDraft'
+import { db } from '@/db/database'
+import { readDraft, createIntakeRecord, intakePath, parseMileage, readIntakeForm, saveIntakeForm } from '@/lib/intakeDraft'
 import { decodeVin, isPlausibleVin } from '@/lib/vin'
 import type { VehicleType } from '@/db/types'
 import { PageHeader } from '@/components/ui/Page'
@@ -32,6 +33,7 @@ function VehicleEditor({ customerId, vehicleId, draft }: { customerId: string; v
   const editing = Boolean(vehicleId)
   const navigate = useNavigate()
   const cacheKey = draft ? draft + '.vehicle.' + customerId : null
+  const [parent] = useState(() => draft ? readDraft(draft) : null)
   const [form, setForm] = useState(() => readIntakeForm(cacheKey, blankVehicle))
   const [decoding, setDecoding] = useState(false)
   const [decodeMsg, setDecodeMsg] = useState<string | null>(null)
@@ -62,13 +64,13 @@ function VehicleEditor({ customerId, vehicleId, draft }: { customerId: string; v
     return () => { active = false }
   }, [customerId, vehicleId])
 
-  function update(next: typeof form) {
+  async function update(next: typeof form) {
     setForm(next)
     try {
-      saveIntakeForm(cacheKey, next)
+      await saveIntakeForm(cacheKey, blankVehicle, form, next)
       setError('')
-    } catch {
-      setError('Could not save this draft. Keep the page open until you add the vehicle.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save this draft. Keep the page open until you add the vehicle.')
     }
   }
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -138,13 +140,15 @@ function VehicleEditor({ customerId, vehicleId, draft }: { customerId: string; v
     busy.current = true
     setSaving(true)
     try {
-      if (draft) requireDraft(draft)
       if (vehicleId) {
         await vehiclesRepo.update(vehicleId, payload)
         navigate(recordPath)
       } else {
-        const vehicle = await vehiclesRepo.create(payload)
-        navigate(afterRecordCreated(draft, cacheKey, { customerId, vehicleId: vehicle.id }, recordPath), { replace: true })
+        const path = await createIntakeRecord(cacheKey, blankVehicle, form, parent, {
+          table: db.vehicles, create: () => vehiclesRepo.create(payload), path: () => recordPath,
+          selection: v => ({ customerId, vehicleId: v.id }),
+        })
+        navigate(path, { replace: true })
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save vehicle. Please try again.')
@@ -154,9 +158,11 @@ function VehicleEditor({ customerId, vehicleId, draft }: { customerId: string; v
     }
   }
 
-  function cancel() {
-    saveIntakeForm(cacheKey, null)
-    navigate(draft ? intakePath(draft) : recordPath)
+  async function cancel() {
+    try {
+      await saveIntakeForm(cacheKey, blankVehicle, form, null)
+      navigate(draft ? intakePath(draft) : recordPath)
+    } catch (err) { setError((err as Error).message) }
   }
 
   if (!loaded) return <p>Loading…</p>

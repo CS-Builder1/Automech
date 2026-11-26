@@ -3,6 +3,7 @@ import type { AuthorizationRecord, EstimateSnapshot, LineItem, WorkOrder, WorkOr
 import { newId, nowISO } from '@/lib/id'
 import { approvalHistory, approvalIssue, estimateSnapshot, needsApproval, sameEstimate } from '@/lib/approval'
 import { computeTotals } from '@/lib/calc'
+import { requireCurrentDraft, type IntakeDraft } from '@/lib/intakeDraft'
 import { displayPair } from '@/lib/money'
 
 export type NewWorkOrder = Omit<WorkOrder, 'id' | 'number' | 'createdAt' | 'updatedAt' | 'deletedAt'>
@@ -59,14 +60,19 @@ export const workOrdersRepo = {
     return all.filter((w) => !w.deletedAt).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   },
 
-  async create(input: NewWorkOrder): Promise<WorkOrder> {
+  async create(input: NewWorkOrder, intake?: { id: string; draft: IntakeDraft }): Promise<WorkOrder> {
     return db.transaction('rw', [db.workOrders, db.settings, db.customers, db.vehicles], async () => {
+      if (intake) {
+        const existing = await db.workOrders.get(intake.id)
+        if (existing) return existing
+        requireCurrentDraft(intake.id, intake.draft)
+      }
       await activeParents(input.customerId, input.vehicleId)
       const settings = await ensureSettings()
       const counter = (settings.roCounter ?? 1000) + 1
       const ts = nowISO()
       const order: WorkOrder = {
-        ...input, ...displayPair(settings.currency, settings.displayCurrency, settings.pegRate), status: 'estimate', currency: settings.currency, id: newId(), number: `RO-${counter}`,
+        ...input, ...displayPair(settings.currency, settings.displayCurrency, settings.pegRate), status: 'estimate', currency: settings.currency, id: intake?.id ?? newId(), number: `RO-${counter}`,
         authorizations: [], authorization: undefined, createdAt: ts, updatedAt: ts, deletedAt: null,
       }
       await db.workOrders.add(order)

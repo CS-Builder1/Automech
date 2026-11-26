@@ -4,6 +4,7 @@ import App from './App'
 import './index.css'
 import { ensureSettings } from './db/database'
 
+import { pruneIntakeDrafts } from './lib/intakeDraft'
 import { syncRestoreEpoch, watchForRestore } from './lib/restoreEpoch'
 
 watchForRestore()
@@ -13,6 +14,7 @@ async function startShop() {
   try {
     const settings = await ensureSettings()
     if (settings.restoreEpoch) syncRestoreEpoch(settings.restoreEpoch)
+    pruneIntakeDrafts()
     root.render(<StrictMode><App /></StrictMode>)
   } catch {
     root.render(<main className="mx-auto max-w-lg p-6" role="alert">

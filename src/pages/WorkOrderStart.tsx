@@ -4,7 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/database'
 import { workOrdersRepo } from '@/repositories/workOrders'
 import { useSettings } from '@/hooks/useSettings'
-import { beginIntake, finishIntake, intakePath, parseMileage, readDraft, saveDraft } from '@/lib/intakeDraft'
+import { beginIntake, cancelIntake, finishIntake, intakePath, otherIntakes, parseMileage, readDraft, updateIntake } from '@/lib/intakeDraft'
 import type { IntakeDraft } from '@/lib/intakeDraft'
 import { displayCustomer } from '@/lib/records'
 import { PageHeader } from '@/components/ui/Page'
@@ -14,7 +14,7 @@ import { Field, TextInput, TextArea } from '@/components/ui/Field'
 export function WorkOrderStart() {
   const navigate = useNavigate()
   const [params] = useSearchParams()
-  const [ready, setReady] = useState<{ id: string; draft: IntakeDraft }>()
+  const [ready, setReady] = useState<{ id: string; draft: IntakeDraft; others: ReturnType<typeof otherIntakes> }>()
   const [error, setError] = useState('')
   useEffect(() => {
     try {
@@ -24,7 +24,7 @@ export function WorkOrderStart() {
         return
       }
       const draft = readDraft(id)
-      if (draft) setReady({ id, draft })
+      if (draft) setReady({ id, draft, others: otherIntakes(id) })
     } catch {
       setError('Device storage is unavailable. Enable site storage and reload to start a job.')
     }
@@ -32,10 +32,12 @@ export function WorkOrderStart() {
 
   if (error) return <p role="alert">{error}</p>
   if (!ready || ready.id !== params.get('draft')) return <p>Opening intake…</p>
-  return <Intake key={ready.id} id={ready.id} initial={ready.draft} />
+  return <Intake key={ready.id} id={ready.id} initial={ready.draft} others={ready.others} />
 }
 
-function Intake({ id, initial }: { id: string; initial: IntakeDraft }) {
+function Intake({ id, initial, others }: {
+  id: string; initial: IntakeDraft; others: ReturnType<typeof otherIntakes>
+}) {
   const navigate = useNavigate()
   const settings = useSettings()
   const [draft, setDraft] = useState(initial)
@@ -54,14 +56,14 @@ function Intake({ id, initial }: { id: string; initial: IntakeDraft }) {
   // An archived or mismatched explicit choice requires a fresh selection.
   const vehicle = picked ?? (!draft.vehicleId && availableVehicles.length === 1 ? availableVehicles[0] : undefined)
 
-  function change(patch: Partial<IntakeDraft>) {
+  async function change(patch: Partial<IntakeDraft>) {
     const next = { ...draft, ...patch }
     setDraft(next)
     try {
-      saveDraft(id, next)
+      await updateIntake(id, draft, next)
       setError('')
-    } catch {
-      setError('Could not save the intake draft. Keep this page open and free device storage.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save the intake draft. Keep this page open and free device storage.')
     }
   }
 
@@ -82,7 +84,7 @@ function Intake({ id, initial }: { id: string; initial: IntakeDraft }) {
         lineItems: [], declinedItems: [],
         shopSuppliesPct: settings.shopSuppliesPct,
         taxRatePct: customer.taxExempt ? 0 : settings.defaultTaxRatePct,
-      })
+      }, { id, draft })
       try {
         finishIntake(id)
       } finally {
@@ -100,6 +102,15 @@ function Intake({ id, initial }: { id: string; initial: IntakeDraft }) {
   return (
     <div className="mx-auto max-w-xl">
       <PageHeader title="New job" subtitle="Intake draft saved on this device" />
+      {others.length > 0 && <ul className="mb-4 space-y-2">
+        {others.map(({ id: savedId, draft: saved }) => {
+          const owner = customers?.find(c => c.id === saved.customerId)
+          const description = [owner && displayCustomer(owner), saved.complaint.trim()].filter(Boolean).join(' · ')
+          return <li key={savedId}><Link className="font-medium text-brand-600" to={intakePath(savedId)}>
+            Resume intake {description ? 'for ' + description : 'from ' + new Date(saved.updatedAt ?? Date.now()).toLocaleString()}
+          </Link></li>
+        })}
+      </ul>}
       <form className="space-y-4" onSubmit={create}>
         <Field label="Customer" htmlFor="cust"
           hint={customers && draft.customerId && !customer ? 'The previous customer is unavailable. Choose an active customer.' : undefined}>
@@ -133,9 +144,11 @@ function Intake({ id, initial }: { id: string; initial: IntakeDraft }) {
         {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
         <div className="flex gap-3 pt-2">
           <Button full type="submit" disabled={!customer || !vehicle || !settings || saving}>Create estimate</Button>
-          <Button type="button" variant="secondary" disabled={saving} onClick={() => {
-            finishIntake(id)
-            navigate('/jobs', { replace: true })
+          <Button type="button" variant="secondary" disabled={saving} onClick={async () => {
+            try {
+              await cancelIntake(id, draft)
+              navigate('/jobs', { replace: true })
+            } catch (err) { setError((err as Error).message) }
           }}>Cancel</Button>
         </div>
       </form>

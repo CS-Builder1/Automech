@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { customersRepo } from '@/repositories/customers'
-import { afterRecordCreated, intakePath, readIntakeForm, requireDraft, saveIntakeForm } from '@/lib/intakeDraft'
+import { db } from '@/db/database'
+import { readDraft, createIntakeRecord, intakePath, readIntakeForm, saveIntakeForm } from '@/lib/intakeDraft'
 import { PageHeader } from '@/components/ui/Page'
 import { Button } from '@/components/ui/Button'
 import { Field, TextInput, TextArea } from '@/components/ui/Field'
@@ -21,6 +22,7 @@ function CustomerEditor({ id, draft }: { id?: string; draft: string | null }) {
   const navigate = useNavigate()
   const editing = Boolean(id)
   const cacheKey = draft ? draft + '.customer' : null
+  const [parent] = useState(() => draft ? readDraft(draft) : null)
   const [form, setForm] = useState(() => readIntakeForm(cacheKey, blankCustomer))
   const [loaded, setLoaded] = useState(!id)
   const [unavailable, setUnavailable] = useState(false)
@@ -42,20 +44,22 @@ function CustomerEditor({ id, draft }: { id?: string; draft: string | null }) {
     return () => { active = false }
   }, [id])
 
-  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  const set = (k: keyof typeof form) => async (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const next = { ...form, [k]: e.target.value }
     setForm(next)
     try {
-      saveIntakeForm(cacheKey, next)
+      await saveIntakeForm(cacheKey, blankCustomer, form, next)
       setError('')
-    } catch {
-      setError('Could not save this draft. Keep the page open until you create the customer.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save this draft. Keep the page open until you create the customer.')
     }
   }
 
-  function cancel() {
-    saveIntakeForm(cacheKey, null)
-    navigate(draft ? intakePath(draft) : id ? '/customers/' + id : '/customers')
+  async function cancel() {
+    try {
+      await saveIntakeForm(cacheKey, blankCustomer, form, null)
+      navigate(draft ? intakePath(draft) : id ? '/customers/' + id : '/customers')
+    } catch (err) { setError((err as Error).message) }
   }
 
   async function submit(e: React.FormEvent) {
@@ -69,13 +73,15 @@ function CustomerEditor({ id, draft }: { id?: string; draft: string | null }) {
     busy.current = true
     setSaving(true)
     try {
-      if (draft) requireDraft(draft)
       if (id) {
         await customersRepo.update(id, input)
         navigate('/customers/' + id)
       } else {
-        const created = await customersRepo.create(input)
-        navigate(afterRecordCreated(draft, cacheKey, { customerId: created.id, vehicleId: '' }, '/customers/' + created.id), { replace: true })
+        const path = await createIntakeRecord(cacheKey, blankCustomer, form, parent, {
+          table: db.customers, create: () => customersRepo.create(input), path: c => '/customers/' + c.id,
+          selection: c => ({ customerId: c.id, vehicleId: '' }),
+        })
+        navigate(path, { replace: true })
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save customer. Please try again.')
