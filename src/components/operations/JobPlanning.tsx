@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/database'
 import type { InspectionRating, WorkOrder } from '@/db/types'
 import { parseAmountToMinor } from '@/lib/money'
+import { OperationForm } from './OperationForm'
 import { Button } from '@/components/ui/Button'
 import { localDateTime, quoteFinding, saveFinding, updateDispatch } from '@/repositories/operations'
 
@@ -26,13 +27,11 @@ export function JobPlanning({ job, readOnly = false }: { job: WorkOrder; readOnl
   )
   const closed = readOnly || ['invoiced', 'cancelled'].includes(job.status)
   async function submit(
-    e: React.FormEvent<HTMLFormElement>,
+    form: HTMLFormElement,
     action: (data: FormData) => Promise<void>,
     success: string,
     reset = false,
   ) {
-    e.preventDefault()
-    const form = e.currentTarget
     try {
       await action(new FormData(form))
       if (reset) form.reset()
@@ -45,11 +44,11 @@ export function JobPlanning({ job, readOnly = false }: { job: WorkOrder; readOnl
     <details className="card mb-4 p-4">
       <summary className="cursor-pointer font-semibold">Dispatch and inspection</summary>
       {!closed && (
-        <form
+        <OperationForm
           className="my-4 space-y-3"
-          onSubmit={(e) =>
+          onSubmit={(form) =>
             submit(
-              e,
+              form,
               (data) =>
                 updateDispatch(
                   job.id,
@@ -76,14 +75,14 @@ export function JobPlanning({ job, readOnly = false }: { job: WorkOrder; readOnl
             </label>
           </div>
           <Button size="sm">Save dispatch</Button>
-        </form>
+        </OperationForm>
       )}
       {!closed && (
-        <form
+        <OperationForm
           className="space-y-2 border-t py-4"
-          onSubmit={(e) =>
+          onSubmit={(form) =>
             submit(
-              e,
+              form,
               (data) =>
                 saveFinding(
                   job.id,
@@ -115,7 +114,7 @@ export function JobPlanning({ job, readOnly = false }: { job: WorkOrder; readOnl
             <textarea className="input" name="note" />
           </label>
           <Button size="sm">Save finding</Button>
-        </form>
+        </OperationForm>
       )}
       {inspections?.map((i) =>
         i.items.map((item) => (
@@ -130,11 +129,11 @@ export function JobPlanning({ job, readOnly = false }: { job: WorkOrder; readOnl
               <p>Deferred</p>
             ) : (
               !closed && (
-                <form
+                <OperationForm
                   className="mt-2 flex flex-wrap items-end gap-2"
-                  onSubmit={(e) =>
+                  onSubmit={(form) =>
                     submit(
-                      e,
+                      form,
                       (data) => {
                         return quoteFinding(i.id, item.id, parseAmountToMinor(String(data.get('price'))))
                       },
@@ -147,7 +146,7 @@ export function JobPlanning({ job, readOnly = false }: { job: WorkOrder; readOnl
                     <input className="input" name="price" inputMode="decimal" required />
                   </label>
                   <Button size="sm">Add to estimate</Button>
-                </form>
+                </OperationForm>
               )
             )}
           </article>

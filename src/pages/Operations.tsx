@@ -7,6 +7,7 @@ import { dayBounds, localDateTime, updatePart } from '@/repositories/operations'
 import { isArchivedJob } from '@/lib/records'
 import { STATUS_META } from '@/lib/status'
 import { nowISO } from '@/lib/id'
+import { OperationForm } from '@/components/operations/OperationForm'
 import { AppointmentForm } from '@/components/operations/AppointmentForm'
 import { PageHeader } from '@/components/ui/Page'
 import { Button } from '@/components/ui/Button'
@@ -183,11 +184,10 @@ export function Operations() {
             <article key={j.id + item.id} className="card mb-3 p-4">
               {jobLink(j)}
               <h3 className="my-2 font-semibold">{item.description}</h3>
-              <form
+              <OperationForm
                 className="grid gap-3 sm:grid-cols-2"
-                onSubmit={async (e) => {
-                  e.preventDefault()
-                  const values = new FormData(e.currentTarget)
+                onSubmit={async (form) => {
+                  const values = new FormData(form)
                   try {
                     await updatePart(j.id, item.id, {
                       supplier: String(values.get('supplier')).trim(),
@@ -217,7 +217,7 @@ export function Operations() {
                   </select>
                 </label>
                 <Button className="self-end">Update part</Button>
-              </form>
+              </OperationForm>
             </article>
           ))
         ) : (
