@@ -24,9 +24,9 @@ export const customersRepo = {
     })
   },
 
-  async create(input: NewCustomer): Promise<Customer> {
+  async create(input: NewCustomer, id = newId()): Promise<Customer> {
     const ts = nowISO()
-    const customer: Customer = { ...input, id: newId(), createdAt: ts, updatedAt: ts, deletedAt: null }
+    const customer: Customer = { ...input, id, createdAt: ts, updatedAt: ts, deletedAt: null }
     await db.customers.add(customer)
     return customer
   },

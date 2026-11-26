@@ -33,12 +33,12 @@ export const vehiclesRepo = {
     return db.vehicles.get(id)
   },
 
-  async create(input: NewVehicle): Promise<Vehicle> {
+  async create(input: NewVehicle, id = newId()): Promise<Vehicle> {
     return db.transaction('rw', db.vehicles, db.customers, async () => {
       await requireOwner(input.customerId)
       checkIdentifier(input)
       const ts = nowISO()
-      const vehicle: Vehicle = { ...input, id: newId(), createdAt: ts, updatedAt: ts, deletedAt: null }
+      const vehicle: Vehicle = { ...input, id, createdAt: ts, updatedAt: ts, deletedAt: null }
       await db.vehicles.add(vehicle)
       return vehicle
     })

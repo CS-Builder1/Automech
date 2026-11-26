@@ -168,20 +168,14 @@ try {
   await vehicleEditor.goto(base + '/customers/' + customerId + '/vehicles/new?draft=' + sharedId)
   await vehicleEditor.locator('#plate').fill('STALE-OWNER')
   await vehicleEditor.evaluate(() => {
-    let transaction
     const add = IDBObjectStore.prototype.add
     IDBObjectStore.prototype.add = function (...args) {
-      if (this.name === 'vehicles') transaction = this.transaction
-      return add.apply(this, args)
-    }
-    const setItem = Storage.prototype.setItem
-    Storage.prototype.setItem = function (key, value) {
-      setItem.call(this, key, value)
-      if (key.endsWith('.recordId') && transaction) {
-        transaction.abort()
+      const request = add.apply(this, args)
+      if (this.name === 'vehicles') {
+        request.addEventListener('success', () => this.transaction.abort(), {once: true})
         IDBObjectStore.prototype.add = add
-        Storage.prototype.setItem = setItem
       }
+      return request
     }
   })
   await vehicleEditor.getByRole('button', { name: 'Add vehicle', exact: true }).click()
@@ -236,6 +230,52 @@ try {
   assert.equal(vehicles.length, 1)
   assert.equal(orders.length, 2)
   assert.equal(orders.find(order => order.id === sharedId).mileageIn, 45000)
+  // The second renderer can still see the old draft after the first tab has committed.
+  const firstChild = await context.newPage()
+  await firstChild.goto(base + '/jobs/new')
+  for (const item of [
+    {link: /add customer/i, field: '#company', value: 'Two-tab Fleet', submit: 'Create customer', table: 'customers', property: 'company'},
+    {link: /add a vehicle/i, field: '#plate', value: 'TWOTAB', submit: 'Add vehicle', table: 'vehicles', property: 'licensePlate'},
+  ]) {
+    await firstChild.getByRole('link', {name: item.link}).click()
+    await firstChild.locator(item.field).fill(item.value)
+    const staleChild = await context.newPage()
+    await staleChild.goto(firstChild.url())
+    assert.equal(await staleChild.locator(item.field).inputValue(), item.value)
+    await staleChild.evaluate(() => {
+      const read = Storage.prototype.getItem
+      const cached = new Map(Object.keys(localStorage).map(key => [key, localStorage.getItem(key)]))
+      Storage.prototype.getItem = function (key) {
+        if (this === localStorage && key.startsWith('automech.intake.')) return cached.get(key) ?? null
+        return read.call(this, key)
+      }
+    })
+    await firstChild.getByRole('button', {name: item.submit, exact: true}).click()
+    await firstChild.waitForURL(/\/jobs\/new/)
+    await staleChild.getByRole('button', {name: item.submit, exact: true}).click()
+    await staleChild.waitForURL(url => !url.pathname.endsWith('/new') || url.pathname === '/jobs/new')
+    const count = await firstChild.evaluate(async ({table, property, value}) => {
+      const db = await new Promise(resolve => {
+        const request = indexedDB.open('automech')
+        request.onsuccess = () => resolve(request.result)
+      })
+      try {
+        const rows = await new Promise(resolve => {
+          const request = db.transaction(table).objectStore(table).getAll()
+          request.onsuccess = () => resolve(request.result)
+        })
+        return rows.filter(row => row[property] === value).length
+      } finally { db.close() }
+    }, {table: item.table, property: item.property, value: item.value})
+    assert.equal(count, 1, 'duplicate intake ' + item.table)
+    await staleChild.close()
+  }
+  // A later Add vehicle action within the same intake must still create a fresh record.
+  await firstChild.getByRole('link', {name: /add a vehicle/i}).click()
+  await firstChild.locator('#plate').fill('NEW-REQUEST')
+  await firstChild.getByRole('button', {name: 'Add vehicle', exact: true}).click()
+  await firstChild.locator('#veh option:checked', {hasText: 'NEW-REQUEST'}).waitFor({state: 'attached'})
+  console.log('Stale tabs reuse committed intake customers and vehicles; separate requests create new records.')
   console.log('A superseded intake cannot overwrite, resurrect or convert the active tab’s draft.')
   console.log('Browser restart recovers independent intakes and discards expired drafts and child forms.')
   console.log('Intake retained complaint, mileage and selections across customer/vehicle creation and reload.')

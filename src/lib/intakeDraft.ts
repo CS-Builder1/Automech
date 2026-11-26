@@ -7,6 +7,7 @@ export interface IntakeDraft {
   vehicleId: string
   complaint: string
   mileageIn: string
+  childRevision?: number
 }
 
 const prefix = 'automech.intake.'
@@ -40,12 +41,12 @@ function requireUnchanged<T extends object>(current: T, expected: T, fields: (ke
 
 export function requireCurrentDraft(id: string, expected: IntakeDraft) {
   const current = requireDraft(id)
-  requireUnchanged(current, expected, ['customerId', 'vehicleId', 'complaint', 'mileageIn'])
+  requireUnchanged(current, expected, ['customerId', 'vehicleId', 'complaint', 'mileageIn', 'childRevision'])
   return current
 }
 
-// IndexedDB serializes the check and Web Storage change across browser tabs.
-// Conversion takes the same workOrders lock and uses the draft ID as its record ID.
+// The transaction serializes record creation. Another renderer can still see an older
+// Web Storage snapshot, so retries must identify an existing record in IndexedDB.
 function editIntake<T>(id: string, action: () => T | Promise<T>, extraTables: string[] = []) {
   return db.transaction('rw', ['workOrders', ...extraTables], async () => {
     if (await db.workOrders.get(id)) throw new Error(closedMessage)
@@ -176,52 +177,53 @@ export async function saveIntakeForm<T extends object>(key: string | null, defau
   const id = key.split('.')[0]
   await editIntake(id, () => {
     checkChildForm(key, defaults, expected)
+    localStorage.removeItem(prefix + key + '.recordId') // Pending receipt from an older app version.
     if (next) {
       saveDraft(id, requireDraft(id))
       localStorage.setItem(prefix + key, JSON.stringify(next))
     } else localStorage.removeItem(prefix + key)
-    localStorage.removeItem(prefix + key + '.recordId')
   })
 }
 
 export async function createIntakeRecord<T extends object, R extends { id: string }>(
   formKey: string | null, defaults: T, expected: T, parent: IntakeDraft | null,
   record: {
-    table: Table<R, string>; create: () => Promise<R>; path: (record: R) => string
+    table: Table<R, string>; create: (id?: string) => Promise<R>; path: (record: R) => string
     selection: (record: R) => Pick<IntakeDraft, 'customerId' | 'vehicleId'>
   },
 ) {
   if (!formKey) return record.path(await record.create())
   const key = formKey
   const id = key.split('.')[0]
-  const recordKey = prefix + key + '.recordId'
+  const legacyReceipt = prefix + key + '.recordId'
+  const revision = parent?.childRevision ?? 0
+  const recordId = key + '~' + revision
   function checkForm() {
     if (!parent) throw new Error(closedMessage)
-    requireUnchanged(requireDraft(id), parent, ['customerId', 'vehicleId'])
+    requireUnchanged(requireDraft(id), parent, ['customerId', 'vehicleId', 'childRevision'])
     checkChildForm(key, defaults, expected)
   }
   const saved = await editIntake(id, async () => {
     checkForm()
-    // A retry between the IndexedDB commit and draft cleanup reuses the same record.
-    const pendingId = localStorage.getItem(recordKey)
-    const previous = pendingId && await record.table.get(pendingId)
-    if (previous) return previous
-    const created = await record.create()
-    localStorage.setItem(recordKey, created.id)
-    return created
+    const existing = await record.table.get(recordId)
+    if (existing) return { row: existing, replay: true }
+    const legacyId = localStorage.getItem(legacyReceipt)
+    const previous = legacyId && await record.table.get(legacyId)
+    return { row: previous || await record.create(recordId), replay: false }
   }, ['customers', 'vehicles'])
+  // A stale renderer must not reapply an old parent selection.
+  if (saved.replay) return record.path(saved.row)
 
   try {
     return await editIntake(id, () => {
       checkForm()
-      if (localStorage.getItem(recordKey) !== saved.id) return record.path(saved)
-      saveDraft(id, { ...requireDraft(id), ...record.selection(saved) })
+      saveDraft(id, { ...requireDraft(id), ...record.selection(saved.row), childRevision: revision + 1 })
       localStorage.removeItem(prefix + key)
-      localStorage.removeItem(recordKey)
+      localStorage.removeItem(legacyReceipt)
       return intakePath(id)
     })
   } catch {
     // The record was committed even if the intake was closed or changed in another tab.
-    return record.path(saved)
+    return record.path(saved.row)
   }
 }

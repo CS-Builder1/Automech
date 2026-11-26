@@ -165,7 +165,7 @@ function VehicleEditor({ customerId, vehicleId, draft }: { customerId: string; v
         navigate(recordPath)
       } else {
         const path = await createIntakeRecord(cacheKey, blankVehicle, await autosave.lastSaved(), parent, {
-          table: db.vehicles, create: () => vehiclesRepo.create(payload), path: () => recordPath,
+          table: db.vehicles, create: id => vehiclesRepo.create(payload, id), path: () => recordPath,
           selection: v => ({ customerId, vehicleId: v.id }),
         })
         navigate(path, { replace: true })

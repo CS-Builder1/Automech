@@ -80,7 +80,7 @@ function CustomerEditor({ id, draft }: { id?: string; draft: string | null }) {
         navigate('/customers/' + id)
       } else {
         const path = await createIntakeRecord(cacheKey, blankCustomer, await autosave.lastSaved(), parent, {
-          table: db.customers, create: () => customersRepo.create(input), path: c => '/customers/' + c.id,
+          table: db.customers, create: id => customersRepo.create(input, id), path: c => '/customers/' + c.id,
           selection: c => ({ customerId: c.id, vehicleId: '' }),
         })
         navigate(path, { replace: true })
