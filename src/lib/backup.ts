@@ -69,7 +69,7 @@ function recoveryValues(tables: BackupTables) {
 export async function createBackup() {
   const original = await readAll(db)
   let tables = Dexie.deepClone(original)
-  cleanLegacyNumbers(tables)
+  cleanLegacyNumbers(tables, 'database')
   for (const row of tables.settings) delete row.restoreEpoch
   let problem: string | undefined
   try {
@@ -103,6 +103,7 @@ function checkTables(input: unknown, schemaVersion: number): BackupTables {
     tables[name] = rows
   }
   for (const asset of tables.media) asset.blob = decodeBlob(asset.blob)
+  cleanLegacyNumbers(tables, 'backup')
   if (schemaVersion < db.verno) validateRecordIds(tables)
   else validateRecords(tables)
   return tables

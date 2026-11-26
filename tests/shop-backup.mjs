@@ -179,10 +179,48 @@ try {
   const before = await download(destination)
   assert.equal(before.payload.tables.customers.length, 0)
 
+  const previewShop = await settingsPage()
+  for (const schemaVersion of [archive.payload.schemaVersion, 1]) {
+    const preview = structuredClone(archive)
+    preview.payload.schemaVersion = schemaVersion
+    const tables = preview.payload.tables
+    if (schemaVersion === 1) {
+      delete tables.expenses
+      delete tables.workOrders[0].authorizations
+    }
+    Object.assign(tables.settings[0], { pegRate: 0, defaultLaborRate: -100, defaultTaxRatePct: -2,
+      defaultPartsMarkupPct: Number.MAX_SAFE_INTEGER + 1, shopSuppliesPct: -0.5 })
+    Object.assign(tables.workOrders[0], { shopSuppliesPct: -0.5, taxRatePct: -2 })
+    await upload(previewShop, recalculate(preview))
+    await previewShop.getByText(/File checked|Invalid .* record/).waitFor()
+    assert.equal(await previewShop.getByRole('alert').count(), 0, `previously valid schema ${schemaVersion} rates prevented restore`)
+    await confirm(previewShop)
+    await previewShop.getByText(/Restore complete/).waitFor()
+    const settings = await storedRow(previewShop, 'settings', 'singleton')
+    assert.equal(settings.pegRate, undefined)
+    for (const field of ['defaultLaborRate', 'defaultPartsMarkupPct', 'defaultTaxRatePct', 'shopSuppliesPct']) {
+      assert.equal(settings[field], 0)
+    }
+    const job = await storedRow(previewShop, 'workOrders', 'w')
+    assert.equal(job.taxRatePct, undefined)
+    assert.equal(job.shopSuppliesPct, undefined)
+    assert.equal(job.authorization.amountAuthorized, 4800)
+
+    tables.workOrders[0].authorization.amountAuthorized = Number.MAX_SAFE_INTEGER + 1
+    await upload(previewShop, recalculate(preview))
+    await previewShop.getByRole('alert').filter({ hasText: 'authorization.amountAuthorized' }).waitFor()
+    assert.equal(await previewShop.getByRole('button', { name: 'Restore shop records' }).count(), 0)
+    assert.equal((await storedRow(previewShop, 'workOrders', 'w')).authorization.amountAuthorized, 4800)
+  }
+  await previewShop.context().close()
+  console.log('PASS current and migrated preview backups restore formerly valid rates and reject invalid signed amounts')
+
   for (const [mutate, expected] of [
     [a => { a.payload.tables.customers[0].followUps = { wiper: { outcome: {}, contactedAt: now } }; recalculate(a) }, 'Invalid customers record'],
     [a => { a.payload.tables.vehicles[0].year = -2003; recalculate(a) }, 'Invalid vehicles record (year)'],
-    [a => { a.payload.tables.settings[0].defaultTaxRatePct = -1; recalculate(a) }, 'Invalid settings record (defaultTaxRatePct)'],
+    [a => { a.payload.tables.settings[0].defaultTaxRatePct = '5'; recalculate(a) }, 'Invalid settings record (defaultTaxRatePct)'],
+    [a => { a.payload.tables.settings[0].defaultLaborRate = 12.5; recalculate(a) }, 'Invalid settings record (defaultLaborRate)'],
+    [a => { a.payload.tables.workOrders[0].lineItems[0].unitCost = Number.MAX_SAFE_INTEGER + 1; recalculate(a) }, 'lineItems.0.unitCost'],
     [a => { a.payload.createdAt = now }, 'integrity check failed'],
     [a => { a.payload.version = 999; recalculate(a) }, 'Unsupported backup version'],
     [a => { delete a.payload.tables.invoices; recalculate(a) }, 'missing the invoices table'],

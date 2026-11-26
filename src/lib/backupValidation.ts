@@ -106,11 +106,14 @@ const shapes: Record<string, Fields> = {
 
 // Only clean copies of fields populated by the old numeric forms. Zero is the
 // neutral fallback for a required shop rate with no usable value.
-export function cleanLegacyNumbers(tables: BackupTables) {
-  function clean(row: Row, names: string[], valid: Check, fallback?: number) {
+export function cleanLegacyNumbers(tables: BackupTables, source: 'database' | 'backup') {
+  function clean(row: Row, names: string[], valid: Check, previous: Check = valid, fallback?: number) {
     for (const name of names) {
       const value = row[name]
       if (typeof value !== 'number' || valid(value)) continue
+      // A file could only have been exported by a preview build if it passed
+      // that build's validation. Leave other invalid input for strict rejection.
+      if (source === 'backup' && !previous(value)) continue
       if (fallback === undefined) delete row[name]
       else row[name] = fallback
     }
@@ -126,15 +129,15 @@ export function cleanLegacyNumbers(tables: BackupTables) {
   for (const row of tables.vehicles) clean(row, ['year', 'mileage'], count)
   for (const row of tables.workOrders) {
     clean(row, ['mileageIn', 'mileageOut'], count)
-    clean(row, ['shopSuppliesPct', 'taxRatePct'], rate)
+    clean(row, ['shopSuppliesPct', 'taxRatePct'], rate, numeric)
     cleanLineCosts(row.lineItems)
     cleanLineCosts(row.declinedItems)
   }
   for (const row of tables.invoices) cleanLineCosts(row.lineItems)
   for (const row of tables.settings) {
-    clean(row, ['defaultLaborRate'], count, 0)
-    clean(row, ['defaultPartsMarkupPct', 'defaultTaxRatePct', 'shopSuppliesPct'], rate, 0)
-    clean(row, ['pegRate'], exchangeRate)
+    clean(row, ['defaultLaborRate'], count, minor, 0)
+    clean(row, ['defaultPartsMarkupPct', 'defaultTaxRatePct', 'shopSuppliesPct'], rate, numeric, 0)
+    clean(row, ['pegRate'], exchangeRate, numeric)
   }
 }
 
