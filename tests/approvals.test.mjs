@@ -133,7 +133,7 @@ test('labor direct cost uses actual hours, independent of billed hours', async (
   await page.close()
 })
 
-test('real v1 upgrade preserves signature, pins billing currency, and repairs manually invoiced jobs', async () => {
+test('v1 upgrade and approval checks work without Array.at and preserve legacy records', async () => {
   const page = await browser.newPage()
   // A resource with no app script opens this origin before v2 can create its database.
   await page.goto(new URL('favicon.svg', base).href)
@@ -165,12 +165,14 @@ test('real v1 upgrade preserves signature, pins billing currency, and repairs ma
     })
   })
   const result = await page.evaluate(async () => {
+    delete Array.prototype.at
     const {db} = await import('/src/db/database.ts')
+    const {approvalIssue} = await import('/src/lib/approval.ts')
     const manual = await db.workOrders.get('manual')
     const issued = await db.workOrders.get('issued')
-    return [manual.currency,manual.displayCurrency,manual.pegRate,manual.status,issued.status,manual.authorizations[0].signatureDataUrl,manual.authorizations[0].snapshot ?? null]
+    return [manual.currency,manual.displayCurrency,manual.pegRate,manual.status,issued.status,manual.authorizations[0].signatureDataUrl,manual.authorizations[0].snapshot ?? null,approvalIssue(manual)]
   })
-  assert.deepEqual(result,['XCD','USD',0.37,'completed','invoiced','historical ink',null])
+  assert.deepEqual(result,['XCD','USD',0.37,'completed','invoiced','historical ink',null,'Re-approval required. Confirm the itemized estimate for this legacy approval.'])
   await page.close()
 })
 

@@ -12,7 +12,7 @@ export function normalizeLegacyOrder(order: WorkOrder, shopCurrency: string, dis
     ...record, currency: record.currency ?? currency, revision: record.revision ?? index + 1,
   }))
   const pair = currency === shopCurrency ? displayPair(currency, displayCurrency, pegRate) : {}
-  return { ...pair, ...order, currency, authorizations, authorization: authorizations.at(-1) }
+  return { ...pair, ...order, currency, authorizations, authorization: authorizations[authorizations.length - 1] }
 }
 
 export function estimateSnapshot(order: WorkOrder, customer?: Customer, vehicle?: Vehicle): EstimateSnapshot {
@@ -41,7 +41,8 @@ export function sameEstimate(a: EstimateSnapshot, b: EstimateSnapshot): boolean 
 }
 
 export function approvalIssue(order: WorkOrder): string | null {
-  const latest = approvalHistory(order).at(-1)
+  const history = approvalHistory(order)
+  const latest = history[history.length - 1]
   if (!latest) return 'Capture customer approval before advancing this job.'
   if (!latest.snapshot) return 'Re-approval required. Confirm the itemized estimate for this legacy approval.'
   if (latest.method === 'signature' && !latest.signatureDataUrl) return 'Re-approval required. A signature is missing.'
