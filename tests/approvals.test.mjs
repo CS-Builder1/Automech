@@ -45,6 +45,33 @@ test('a price uses one decimal separator and rejects ambiguous prices', async ()
   await page.close()
 })
 
+test('part quantities reject ambiguous groups and accept ungrouped decimals and integers', async () => {
+  const {page, order} = await newJob()
+  const sheet = page.getByRole('dialog')
+  for (const [index, quantity] of ['1,5', '1.5', '2'].entries()) {
+    await page.getByRole('button', {name: '+ Add', exact: true}).click()
+    await sheet.getByLabel('Type', {exact: true}).selectOption('part')
+    await sheet.getByLabel('Description').fill('Washer')
+    await sheet.getByLabel('Price each').fill('0.10')
+    if (index === 0) {
+      for (const ambiguous of ['1,000', '1,550']) {
+        await sheet.getByLabel('Quantity').fill(ambiguous)
+        await sheet.getByRole('button', {name: 'Add', exact: true}).click()
+        await sheet.getByRole('alert').waitFor({timeout: 2500})
+      }
+    }
+    await sheet.getByLabel('Quantity').fill(quantity)
+    await sheet.getByRole('button', {name: 'Add', exact: true}).click()
+    await sheet.waitFor({state: 'hidden'})
+  }
+  const saved = await page.evaluate(async id => {
+    const {db} = await import('/src/db/database.ts')
+    return (await db.workOrders.get(id)).lineItems.filter(i => i.kind === 'part').map(i => i.quantity)
+  }, order.id)
+  assert.deepEqual(saved, [1.5, 1.5, 2])
+  await page.close()
+})
+
 test('signed revisions retain scope, currency and separate ink; signed work controls completion', async () => {
   const {page, order} = await newJob()
   await page.getByRole('button',{name:'Capture approval'}).click()

@@ -12,13 +12,21 @@ export function parseAmountToMinor(input: string): number {
   return minor
 }
 
-export function parseRate(input: string, label = 'Rate'): number {
+function parseNonnegativeDecimal(input: string, label: string): number {
   const raw = input.trim()
   const value = Number(raw.replace(',', '.'))
-  if (!/^\d+(?:[.,]\d+)?$/.test(raw) || !Number.isFinite(value) || value > Number.MAX_SAFE_INTEGER) {
+  if (!/^\d+(?:[.,]\d+)?$/.test(raw) || /,\d{3}$/.test(raw) || value > Number.MAX_SAFE_INTEGER) {
     throw new Error(label + ' must be a nonnegative number without grouping separators.')
   }
   return value
+}
+
+export function parseRate(input: string, label = 'Rate'): number {
+  return parseNonnegativeDecimal(input, label)
+}
+
+export function parseQuantity(input: string): number {
+  return parseNonnegativeDecimal(input, 'Quantity')
 }
 
 export function minorToDecimal(minor: number): number {

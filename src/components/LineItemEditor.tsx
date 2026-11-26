@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { LineItem, LineItemKind, PartStatus } from '@/db/types'
 import { newId } from '@/lib/id'
-import { parseAmountToMinor, minorToDecimal } from '@/lib/money'
+import { parseAmountToMinor, parseQuantity, minorToDecimal } from '@/lib/money'
 import { Sheet } from './ui/Sheet'
 import { Button } from './ui/Button'
 import { Field, TextInput } from './ui/Field'
@@ -176,11 +176,4 @@ export function LineItemEditor({ open, initial, defaultLaborRate, defaultMarkupP
       </div>
     </Sheet>
   )
-}
-
-function parseQuantity(raw: string) {
-  if (!/^\d+(?:[.,]\d+)?$/.test(raw.trim())) throw new Error('Enter a nonnegative number without grouping separators.')
-  const number = Number(raw.trim().replace(',', '.'))
-  if (!Number.isFinite(number)) throw new Error('Quantity is too large.')
-  return number
 }
