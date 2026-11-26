@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { ShopSettings } from '@/db/types'
-import { useSettings, saveSettings } from '@/hooks/useSettings'
+import { useSettingsSnapshot, saveSettings } from '@/hooks/useSettings'
 import { PageHeader } from '@/components/ui/Page'
 import { BackupSettings } from '@/components/BackupSettings'
 import { Button } from '@/components/ui/Button'
@@ -22,32 +22,39 @@ function settingsForm(settings: ShopSettings) {
   }
 }
 
+type SettingsEdits = Partial<ReturnType<typeof settingsForm>>
+
 export function Settings() {
-  const settings = useSettings()
-  const [edits, setEdits] = useState<Partial<ReturnType<typeof settingsForm>>>({})
+  const [revision, setRevision] = useState(0)
+  const snapshot = useSettingsSnapshot(revision)
+  const [submitted, setSubmitted] = useState<{ revision: number; edits: SettingsEdits } | null>(null)
+  const [edits, setEdits] = useState<SettingsEdits>({})
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
-  if (!settings) return <p className="text-sm text-slate-400">Loading…</p>
+  if (!snapshot?.settings) return <p className="text-sm text-slate-400">Loading…</p>
 
-  const persisted = settingsForm(settings)
-  const form = { ...persisted, ...edits }
+  // Keep the submitted values visible until a query started after that write returns.
+  const pending = submitted && submitted.revision !== snapshot.revision ? submitted : null
+  const base = { ...settingsForm(snapshot.settings), ...pending?.edits }
+  const form = { ...base, ...edits }
   const set = (key: keyof typeof form) => (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const value = event.target.value
     setEdits(current => {
       const next = { ...current, [key]: value }
-      if (value === persisted[key]) delete next[key]
+      if (value === base[key]) delete next[key]
       return next
     })
   }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
+    if (pending) return
     setError('')
     try {
       const usePeg = Boolean(form.displayCurrency && form.displayCurrency !== form.currency)
       const pegRate = usePeg ? parseRate(form.pegRate, 'Exchange rate') : undefined
       if (pegRate === 0) throw Error('Exchange rate must be greater than zero.')
-      await saveSettings({
+      const patch = {
         shopName: form.shopName.trim() || 'My Shop',
         ownerName: form.ownerName.trim() || undefined,
         phone: form.phone.trim() || undefined,
@@ -60,12 +67,18 @@ export function Settings() {
         defaultTaxRatePct: parseRate(form.defaultTaxRatePct || '0', 'Tax rate'),
         defaultPartsMarkupPct: parseRate(form.defaultPartsMarkupPct || '0', 'Parts markup'),
         shopSuppliesPct: parseRate(form.shopSuppliesPct || '0', 'Shop supplies'),
-      })
+      }
+      const nextRevision = revision + 1
+      setSubmitted({ revision: nextRevision, edits })
+      setEdits({})
+      await saveSettings(patch)
+      setRevision(nextRevision)
     } catch (cause) {
+      setSubmitted(null)
+      setEdits(current => ({ ...edits, ...current }))
       setError(cause instanceof Error ? cause.message : 'Could not save shop settings.')
       return
     }
-    setEdits(current => current === edits ? {} : current)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
@@ -137,7 +150,7 @@ export function Settings() {
 
         {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
         <div className="flex items-center gap-3">
-          <Button type="submit">Save settings</Button>
+          <Button type="submit" disabled={!!pending}>Save settings</Button>
           {saved && <span className="text-sm font-medium text-emerald-600">Saved ✓</span>}
         </div>
       </form>

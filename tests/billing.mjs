@@ -175,6 +175,50 @@ try {
   })
   assert.deepEqual(persisted, [7.25, counter, 'Cashier updated shop'])
   await settingsTab.waitForFunction(() => document.querySelector('#tax')?.value === '8')
+  await settingsTab.getByText('Saved ✓').waitFor({ state: 'hidden' })
+  await settingsTab.evaluate(async () => {
+    const { db } = await import('/src/db/database.ts')
+    const get = db.settings.get.bind(db.settings)
+    const gate = new Promise(resolve => { window.deliverSettings = resolve })
+    db.settings.get = function (...args) {
+      const result = get(...args)
+      if (db.constructor.currentTransaction?.mode === 'readwrite') return result
+      return result.then(async row => { await gate; return row })
+    }
+  })
+  const tax = settingsTab.getByLabel('Tax rate %')
+  await tax.fill('9.5')
+  await settingsTab.getByRole('button', { name: 'Save settings' }).click()
+  await settingsTab.getByText('Saved ✓').waitFor()
+  assert.equal(await tax.inputValue(), '9.5', 'the prior tax rate flashed before the committed row arrived')
+  await tax.press('End')
+  await tax.press('2')
+  assert.equal(await tax.inputValue(), '9.52')
+  await settingsTab.evaluate(() => window.deliverSettings())
+
+  // Restore the prior value while a second save is still writing.
+  await settingsTab.evaluate(async () => {
+    const { db } = await import('/src/db/database.ts')
+    const update = db.settings.update.bind(db.settings)
+    db.settings.update = async (...args) => {
+      await new Promise(resolve => { window.finishSave = resolve })
+      return update(...args)
+    }
+  })
+  await settingsTab.getByRole('button', { name: 'Save settings' }).click()
+  await settingsTab.waitForFunction(() => !!window.finishSave)
+  await tax.fill('9.5')
+  await settingsTab.evaluate(() => window.finishSave())
+  await page.waitForFunction(async () => {
+    const { db } = await import('/src/db/database.ts')
+    return (await db.settings.get('singleton')).defaultTaxRatePct === 9.52
+  })
+  await page.evaluate(async () => {
+    const { db } = await import('/src/db/database.ts')
+    await db.settings.update('singleton', { shopName: 'Saved settings delivered' })
+  })
+  await settingsTab.waitForFunction(() => document.querySelector('#shopName')?.value === 'Saved settings delivered')
+  assert.equal(await tax.inputValue(), '9.5', 'typing during save was lost')
   await settingsTab.close()
 
   const legacyPage = await browser.newPage()
