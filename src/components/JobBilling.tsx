@@ -21,6 +21,7 @@ export function JobBilling({ workOrder, invoice }: { workOrder: WorkOrder; invoi
     payments: await db.payments.where('workOrderId').equals(workOrder.id).toArray(),
   }), [workOrder.id, workOrder.deletedAt, workOrder.customerId, workOrder.vehicleId])
   if (!data) return null
+  if (invoice?.deletedAt) return <section className="card mb-4 p-4">This job’s invoice has been archived.</section>
   if (invoice) return <section className="card mb-4 p-4"><Link className="font-semibold text-brand-600" to={'/billing/' + invoice.id}>View invoice {invoice.number}</Link></section>
   const total = computeTotals(workOrder).total
   const paid = data.payments.reduce((sum,p) => sum + paymentValue(p), 0)

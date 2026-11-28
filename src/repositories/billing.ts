@@ -17,9 +17,24 @@ export const tenderLabel = (method: PaymentMethod) =>
 
 export { localDate }
 
+function activeInvoicesByJob(invoices: Invoice[]) {
+  const byJob = new Map<string, Invoice>()
+  // The workOrderId index visits duplicate keys in primary-key order.
+  for (const invoice of invoices) {
+    if (!invoice.deletedAt && !byJob.has(invoice.workOrderId)) byJob.set(invoice.workOrderId, invoice)
+  }
+  return byJob
+}
+
 export async function invoicesForJobs(jobs: WorkOrder[]) {
   const invoices = await db.invoices.where('workOrderId').anyOf(jobs.map(job => job.id)).toArray()
-  return new Map(invoices.map(invoice => [invoice.workOrderId, invoice]))
+  return activeInvoicesByJob(invoices)
+}
+
+export async function existingInvoiceForJob(workOrderId: string): Promise<Invoice | undefined> {
+  const invoices = await db.invoices.where('workOrderId').equals(workOrderId).toArray()
+  // An archived invoice still protects its receipts against reassignment when issuing.
+  return activeInvoicesByJob(invoices).get(workOrderId) ?? invoices[0]
 }
 
 function validDate(date: string) {
@@ -43,7 +58,7 @@ export async function jobBillingParties(order: WorkOrder) {
 
 export async function issueInvoice(workOrderId: string, terms = '', dueDate = ''): Promise<Invoice> {
   return db.transaction('rw', [db.workOrders, db.invoices, db.payments, db.settings, db.customers, db.vehicles], async () => {
-    const existing = await db.invoices.where('workOrderId').equals(workOrderId).first()
+    const existing = await existingInvoiceForJob(workOrderId)
     if (existing?.deletedAt) throw new Error('This invoice has been archived.')
     if (existing) return existing
     const order = await db.workOrders.get(workOrderId)
@@ -109,7 +124,7 @@ export async function recordPayment(input: PaymentInput): Promise<Payment> {
       return prior
     }
     const invoice = input.invoiceId ? await db.invoices.get(input.invoiceId)
-      : input.workOrderId ? await db.invoices.where('workOrderId').equals(input.workOrderId).first() : undefined
+      : input.workOrderId ? await existingInvoiceForJob(input.workOrderId) : undefined
     if ((input.invoiceId && !invoice) || invoice?.deletedAt) throw new Error('Invoice unavailable.')
     if (!input.invoiceId && invoice) throw new Error('This job has been invoiced. Open the invoice to record a payment.')
     const workOrderId = invoice?.workOrderId ?? input.workOrderId

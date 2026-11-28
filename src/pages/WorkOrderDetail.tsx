@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/database'
 import { workOrdersRepo, type ApprovalInput } from '@/repositories/workOrders'
+import { existingInvoiceForJob } from '@/repositories/billing'
 import { useSettings } from '@/hooks/useSettings'
 import { useMoney } from '@/hooks/useMoney'
 import type { LineItem, WorkOrderStatus, EstimateSnapshot } from '@/db/types'
@@ -26,7 +27,7 @@ export function WorkOrderDetail() {
     const order = await db.workOrders.get(id)
     if (!order) return null
     const restoreEpoch = (await db.settings.get('singleton'))?.restoreEpoch ?? 'initial'
-    const invoice = await db.invoices.where('workOrderId').equals(id).first()
+    const invoice = await existingInvoiceForJob(id)
     return { order, invoice, restoreEpoch, customer: await db.customers.get(order.customerId), vehicle: await db.vehicles.get(order.vehicleId) }
   }, [id])
   const [editingItem, setEditingItem] = useState<LineItem | undefined>()
@@ -36,7 +37,8 @@ export function WorkOrderDetail() {
 
   if (data === undefined) return <p className="text-sm text-slate-400">Loading…</p>
   if (!data) return <p>Job not found.</p>
-  const { order: wo, invoice, vehicle, customer, restoreEpoch } = data
+  const { order: wo, invoice: linkedInvoice, vehicle, customer, restoreEpoch } = data
+  const invoice = linkedInvoice?.deletedAt ? undefined : linkedInvoice
   const document = invoice ?? wo
   const money = (amount: number) => format(amount, document)
   const estimate = computeTotals(document)
@@ -218,7 +220,7 @@ export function WorkOrderDetail() {
 
       {!locked && <Button variant="ghost" size="sm" onClick={() => run(archive)} className="!text-red-600">Archive job</Button>}
 
-      <JobBilling key={'billing:' + wo.id} workOrder={wo} invoice={invoice} />
+      <JobBilling key={'billing:' + wo.id} workOrder={wo} invoice={linkedInvoice} />
 
       {/* Mounted only while open so each open initializes from a clean `initial`. */}
       {!readOnly && settings && itemSheetOpen && (

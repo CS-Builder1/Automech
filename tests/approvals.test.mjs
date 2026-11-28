@@ -216,7 +216,7 @@ test('approval history retains the signed tax and total when discounts are re-ap
   await page.close()
 })
 
-test('issued jobs show their frozen tax, total and currency in job, history and search views', async () => {
+test('duplicate invoices yield the same active invoice and frozen amounts in job, history and search views', async () => {
   const {page, order} = await newJob()
   await page.evaluate(async job => {
     const {db} = await import('/src/db/database.ts')
@@ -225,22 +225,61 @@ test('issued jobs show their frozen tax, total and currency in job, history and 
       {id: 'discount', kind: 'discount', description: 'Promotion', quantity: 1, unitPrice: 1000, taxable: true},
     ]
     await db.workOrders.update(job.id, {status: 'invoiced', taxRatePct: 10, lineItems})
-    await db.invoices.add({
+    const invoice = {
       id: 'historical', number: 'INV-1001', workOrderId: job.id, customerId: job.customerId, vehicleId: job.vehicleId,
       lineItems, subtotal: 9000, shopSupplies: 0, tax: 900, total: 9900, amountPaid: 0,
       currency: 'EUR', issuedAt: job.createdAt, createdAt: job.createdAt, updatedAt: job.createdAt,
-    })
+    }
+    await db.invoices.bulkAdd([
+      {...invoice, id: 'other', number: 'INV-1002', total: 12000},
+      {...invoice, id: 'archived', number: 'INV-1000', total: 6500, deletedAt: job.createdAt},
+      invoice,
+    ])
   }, order)
-  await page.getByRole('link', {name: 'View invoice INV-1001'}).waitFor()
+  const invoiceLink = page.getByRole('link', {name: /View invoice/})
+  assert.equal(await invoiceLink.innerText(), 'View invoice INV-1001')
   const tax = page.getByText(/^Tax(?: \(10%\))?$/).locator('..')
   const total = page.getByText('Total', {exact: true}).locator('..')
   assert.match(await tax.innerText(), /€9\.00/)
   assert.match(await total.innerText(), /€99\.00/)
+  await invoiceLink.click()
+  await page.getByRole('heading', {name: 'Invoice INV-1001'}).waitFor()
+  assert.equal(await page.evaluate(async id => {
+    const {issueInvoice} = await import('/src/repositories/billing.ts')
+    return (await issueInvoice(id)).id
+  }, order.id), 'historical')
   for (const route of ['customers/c', 'customers/c/vehicles/v', 'search?q=RO-1001', 'jobs?status=all']) {
     await page.goto(new URL(route, base).href)
     const link = page.getByRole('link', {name: /RO-1001 · Invoiced/})
     assert.match(await link.innerText(), /€99\.00/, route)
   }
+  await page.close()
+})
+
+test('an archived invoice leaves the estimate, its editable fields and its history total visible', async () => {
+  const {page, order} = await newJob()
+  await page.evaluate(async job => {
+    const {db} = await import('/src/db/database.ts')
+    await db.invoices.add({
+      id: 'archived', number: 'INV-1000', workOrderId: job.id, customerId: job.customerId, vehicleId: job.vehicleId,
+      lineItems: [], subtotal: 6500, shopSupplies: 0, tax: 0, total: 6500, amountPaid: 0,
+      currency: 'EUR', issuedAt: job.createdAt, createdAt: job.createdAt, updatedAt: job.createdAt, deletedAt: job.createdAt,
+    })
+  }, order)
+  await page.reload()
+  const total = page.getByText('Total', {exact: true}).locator('..')
+  assert.match(await total.innerText(), /\$100\.00/)
+  assert.equal(await page.getByRole('button', {name: /Brake check.*1 hr/}).isEnabled(), true)
+  assert.equal(await page.getByLabel('Status', {exact: true}).isEnabled(), true)
+  await page.getByText(/invoice has been archived/i).waitFor()
+  assert.equal(await page.getByRole('link', {name: /View invoice/}).count(), 0)
+  assert.equal(await page.getByRole('button', {name: 'Record deposit'}).count(), 0)
+  await assert.rejects(page.evaluate(async id => {
+    const {issueInvoice} = await import('/src/repositories/billing.ts')
+    await issueInvoice(id)
+  }, order.id), /invoice has been archived/)
+  await page.goto(new URL('customers/c', base).href)
+  assert.match(await page.getByRole('link', {name: /RO-1001 · Estimate/}).innerText(), /\$100\.00/)
   await page.close()
 })
 
