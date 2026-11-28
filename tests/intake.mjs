@@ -1,0 +1,434 @@
+import assert from 'node:assert/strict'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { chromium } from 'playwright-core'
+
+const base = process.env.APP_URL || 'http://127.0.0.1:5173'
+const profile = await mkdtemp(join(tmpdir(), 'automech-intake-'))
+const launch = () => chromium.launchPersistentContext(profile, {
+  executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium',
+  headless: true,
+})
+async function editAndReload(page, selector, value) {
+  const field = page.locator(selector)
+  await Promise.all([page.waitForNavigation(), field.evaluate((element, text) => {
+    // Reload in the input event's turn, before an IndexedDB write can complete.
+    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), 'value').set
+    setter.call(element, text)
+    element.dispatchEvent(new Event('input', { bubbles: true }))
+    location.reload()
+  }, value)])
+  assert.equal(await field.inputValue(), value)
+}
+
+async function failNextDraftSave(page, suffix = '') {
+  const id = new URL(page.url()).searchParams.get('draft')
+  assert.ok(id)
+  await page.evaluate(draftKey => {
+    const setItem = Storage.prototype.setItem
+    Storage.prototype.setItem = function (key, value) {
+      if (this === localStorage && key === draftKey) {
+        Storage.prototype.setItem = setItem
+        throw new DOMException('Device storage is full', 'QuotaExceededError')
+      }
+      return setItem.call(this, key, value)
+    }
+  }, 'automech.intake.' + id + suffix)
+}
+
+async function freezeIntakeReads(page) {
+  await page.evaluate(() => {
+    const read = Storage.prototype.getItem
+    const cached = new Map(Object.keys(localStorage).map(key => [key, localStorage.getItem(key)]))
+    Storage.prototype.getItem = function (key) {
+      if (this === localStorage && key.startsWith('automech.intake.')) return cached.get(key) ?? null
+      return read.call(this, key)
+    }
+  })
+}
+
+let context = await launch()
+try {
+  const page = await context.newPage()
+  page.setDefaultTimeout(3000)
+  page.setDefaultNavigationTimeout(15000)
+  const button = (name) => page.getByRole('button', { name, exact: true })
+  await page.goto(base + '/jobs/new')
+  await editAndReload(page, '#complaint', 'Shudder during braking')
+  await page.locator('#mileage').fill('40,012')
+  await page.getByRole('link', { name: /add customer/i }).click()
+  await button('Create customer').click()
+  assert.match(await page.getByRole('alert').innerText(), /name|company/i)
+  await failNextDraftSave(page, '.customer')
+  await page.locator('#company').fill('Harbor')
+  await page.getByRole('alert').filter({ hasText: /storage is full/i }).waitFor()
+  assert.equal(await page.locator('#company').inputValue(), 'Harbor')
+  await page.locator('#company').pressSequentially(' Depot')
+  await page.waitForFunction(() => {
+    const id = new URL(location.href).searchParams.get('draft')
+    return JSON.parse(localStorage.getItem('automech.intake.' + id + '.customer'))?.company === 'Harbor Depot'
+  }, undefined, { timeout: 3000 })
+  await page.reload()
+  assert.equal(await page.locator('#company').inputValue(), 'Harbor Depot')
+  await failNextDraftSave(page, '.customer')
+  await page.locator('#company').fill('Harbor Fleet')
+  await button('Create customer').click()
+  await page.waitForURL(/\/jobs\/new/)
+  await page.reload()
+  assert.equal(await page.locator('#complaint').inputValue(), 'Shudder during braking')
+  assert.equal(await page.locator('#mileage').inputValue(), '40,012')
+  await page.locator('#cust option:checked', { hasText: 'Harbor Fleet' }).waitFor({ state: 'attached' })
+  const customerId = await page.locator('#cust').inputValue()
+  await page.getByRole('link', { name: /add (a )?vehicle/i }).click()
+  await editAndReload(page, '#plate', 'FLEET-16')
+  assert.equal(await page.locator('#plate').inputValue(), 'FLEET-16')
+  async function startDecode(vin) {
+    let accept
+    const request = new Promise(resolve => { accept = resolve })
+    await page.route('https://vpic.nhtsa.dot.gov/**', route => accept(route), {times: 1})
+    await page.locator('#vin').fill(vin)
+    await button('Decode').click()
+    return request
+  }
+  const decodeReply = {json: {Results: [{Make: 'Honda', Model: 'Accord', ModelYear: '2003'}]},
+    headers: {'access-control-allow-origin': '*'}}
+  const obsolete = await startDecode('1HGCM82633A004353')
+  assert.equal(await page.locator('#vin').isEditable(), true)
+  await page.locator('#vin').fill('1HGCM82633A004352')
+  await obsolete.fulfill(decodeReply)
+  const pending = await startDecode('1HGCM82633A004352')
+  assert.equal(await page.locator('#make').inputValue(), '')
+  await page.locator('#plate').fill('FLEET-17')
+  await page.locator('#model').fill('Accord EX')
+  await pending.fulfill(decodeReply)
+  await button('Decode').waitFor()
+  assert.equal(await page.locator('#year').inputValue(), '2003')
+  assert.equal(await page.locator('#make').inputValue(), 'Honda')
+  assert.equal(await page.locator('#model').inputValue(), 'Accord EX')
+  assert.equal(await page.locator('#plate').inputValue(), 'FLEET-17')
+  await failNextDraftSave(page, '.vehicle.' + customerId)
+  await page.locator('#plate').fill('FLEET-18')
+  await button('Add vehicle').click()
+  await page.waitForURL(/\/jobs\/new/)
+  await page.locator('#veh option:checked', { hasText: 'Accord EX · FLEET-18' }).waitFor({ state: 'attached' })
+  await page.reload()
+  await failNextDraftSave(page)
+  await page.locator('#complaint').fill('Shudder during braking at speed')
+  await button('Create estimate').click()
+  await page.waitForURL(/\/jobs\/(?!new)[^/?]+$/)
+  assert.equal(await page.getByLabel('Complaint / concern').inputValue(), 'Shudder during braking at speed')
+  assert.equal(await page.getByLabel('Mileage in', { exact: true }).inputValue(), '40012')
+  await page.goto(base + '/jobs/new?customerId=' + customerId)
+  await page.locator('#complaint').fill('A second job for Harbor Fleet')
+  await page.locator('#mileage').fill('100.5')
+  await button('Create estimate').click()
+  assert.match(await page.getByRole('alert').innerText(), /whole number/i)
+  await page.goto(base + '/customers/new')
+  await page.locator('#firstName').fill('Dana')
+  await button('Create customer').click()
+  await page.waitForURL(/\/customers\/(?!new)[^/?]+$/)
+  const secondCustomerId = new URL(page.url()).pathname.split('/').pop()
+  await page.goto(base + '/jobs/new?customerId=' + secondCustomerId)
+  await page.locator('#cust option:checked', { hasText: 'Dana' }).waitFor({ state: 'attached' })
+  assert.equal(await page.locator('#complaint').inputValue(), '')
+  await page.getByRole('link', { name: /Resume intake.*Harbor Fleet/ }).click()
+  assert.equal(await page.locator('#complaint').inputValue(), 'A second job for Harbor Fleet')
+  await page.goto(base + '/customers/missing/vehicles/new')
+  assert.match(await page.getByRole('alert').innerText(), /unavailable/i)
+  assert.equal(await button('Add vehicle').count(), 0)
+  await page.goto(base + '/customers/missing/edit')
+  assert.match(await page.getByRole('alert').innerText(), /unavailable/i)
+  assert.equal(await button('Save changes').count(), 0)
+  const independentTab = await context.newPage()
+  await independentTab.goto(base + '/jobs/new')
+  assert.equal(await independentTab.locator('#complaint').inputValue(), '')
+  await independentTab.locator('#complaint').fill('Inspect air conditioning')
+
+  const expiredTab = await context.newPage()
+  await expiredTab.clock.setFixedTime(new Date(Date.now() - 15 * 24 * 60 * 60 * 1000))
+  await expiredTab.goto(base + '/jobs/new?customerId=' + customerId)
+  await expiredTab.locator('#complaint').fill('Old oil change')
+  const expiredURL = expiredTab.url()
+  const expiredId = new URL(expiredURL).searchParams.get('draft')
+  await expiredTab.getByRole('link', { name: /add customer/i }).click()
+  await expiredTab.locator('#company').fill('Old name')
+  await expiredTab.goto(expiredURL)
+  await expiredTab.getByRole('link', { name: /add a vehicle/i }).click()
+  await expiredTab.locator('#plate').fill('OLD-PLATE')
+  const expiredKeys = await expiredTab.evaluate(id =>
+    Object.keys(localStorage).filter(key => key.startsWith('automech.intake.' + id)), expiredId)
+  assert.ok(expiredKeys.some(key => key.endsWith('.customer')))
+  assert.ok(expiredKeys.some(key => key.includes('.vehicle.')))
+
+  await context.close()
+  context = await launch()
+  const reopened = await context.newPage()
+  await reopened.goto(base + '/jobs')
+  await reopened.getByRole('heading', { name: 'Jobs', exact: true }).waitFor()
+  assert.deepEqual(await reopened.evaluate(keys => keys.filter(key => localStorage.getItem(key) !== null), expiredKeys), [])
+  await reopened.goto(base + '/jobs/new')
+  await reopened.getByRole('link', { name: /Resume intake.*Inspect air conditioning/ }).click()
+  assert.equal(await reopened.locator('#complaint').inputValue(), 'Inspect air conditioning')
+  await reopened.getByRole('link', { name: /Resume intake.*Harbor Fleet/ }).click()
+  assert.equal(await reopened.locator('#complaint').inputValue(), 'A second job for Harbor Fleet')
+  assert.equal(await reopened.locator('#mileage').inputValue(), '100.5')
+  const sharedURL = reopened.url()
+  const sharedId = new URL(sharedURL).searchParams.get('draft')
+  const vehicleEditor = await context.newPage()
+  await vehicleEditor.goto(base + '/customers/' + customerId + '/vehicles/new?draft=' + sharedId)
+  await vehicleEditor.locator('#plate').fill('STALE-OWNER')
+  await vehicleEditor.evaluate(() => {
+    const add = IDBObjectStore.prototype.add
+    IDBObjectStore.prototype.add = function (...args) {
+      const request = add.apply(this, args)
+      if (this.name === 'vehicles') {
+        request.addEventListener('success', () => this.transaction.abort(), {once: true})
+        IDBObjectStore.prototype.add = add
+      }
+      return request
+    }
+  })
+  await vehicleEditor.getByRole('button', { name: 'Add vehicle', exact: true }).click()
+  await vehicleEditor.getByRole('alert').waitFor()
+  const afterAbort = await reopened.evaluate(id => JSON.parse(localStorage.getItem('automech.intake.' + id)), sharedId)
+  assert.equal(afterAbort.customerId, customerId)
+  assert.equal(afterAbort.vehicleId, '')
+  await vehicleEditor.reload()
+  assert.equal(await vehicleEditor.locator('#plate').inputValue(), 'STALE-OWNER')
+  await reopened.locator('#cust').selectOption(secondCustomerId)
+  await vehicleEditor.getByRole('button', { name: 'Add vehicle', exact: true }).click()
+  await vehicleEditor.getByRole('alert').filter({ hasText: /another tab/ }).waitFor()
+  assert.equal(await reopened.locator('#cust').inputValue(), secondCustomerId)
+  await reopened.locator('#cust').selectOption(customerId)
+  const competing = await context.newPage()
+  await competing.goto(sharedURL)
+  await failNextDraftSave(reopened)
+  await reopened.locator('#complaint').fill('Unsaved brake inspection')
+  await reopened.getByRole('alert').filter({ hasText: /storage is full/i }).waitFor()
+  await competing.locator('#mileage').fill('45000')
+  // This tab still has the old form in memory.
+  await reopened.locator('#complaint').fill('Superseded edit')
+  await reopened.getByRole('alert').filter({ hasText: /another tab/ }).waitFor()
+  const shared = await competing.evaluate(id => JSON.parse(localStorage.getItem('automech.intake.' + id)), sharedId)
+  assert.equal(shared.mileageIn, '45000')
+  assert.equal(shared.complaint, 'A second job for Harbor Fleet')
+  const submitting = await context.newPage()
+  await submitting.goto(sharedURL)
+  await submitting.waitForFunction(() => document.querySelector('button[type="submit"]')?.disabled === false)
+  await Promise.all([competing, submitting].map(tab => tab.getByRole('button', { name: 'Create estimate' }).click()))
+  await competing.waitForURL(/\/jobs\/(?!new)[^/?]+$/)
+  await submitting.waitForURL(competing.url())
+  await reopened.locator('#mileage').fill('49000')
+  await reopened.getByRole('alert').filter({ hasText: /closed/ }).waitFor()
+  await reopened.getByRole('button', { name: 'Create estimate' }).click()
+  await reopened.waitForURL(competing.url())
+  assert.equal(await reopened.evaluate(id => localStorage.getItem('automech.intake.' + id), sharedId), null)
+  const [orders, vehicles] = await competing.evaluate(async () => {
+    const open = indexedDB.open('automech')
+    const db = await new Promise((resolve, reject) => {
+      open.onsuccess = () => resolve(open.result)
+      open.onerror = () => reject(open.error)
+    })
+    try {
+      return await Promise.all(['workOrders', 'vehicles'].map(table => new Promise((resolve, reject) => {
+        const read = db.transaction(table).objectStore(table).getAll()
+        read.onsuccess = () => resolve(read.result)
+        read.onerror = () => reject(read.error)
+      })))
+    } finally { db.close() }
+  })
+  assert.equal(vehicles.length, 1)
+  assert.equal(orders.length, 2)
+  assert.equal(orders.find(order => order.id === sharedId).mileageIn, 45000)
+  // The second renderer can still see the old draft after the first tab has committed.
+  const firstChild = await context.newPage()
+  await firstChild.goto(base + '/jobs/new')
+  for (const item of [
+    {link: /add customer/i, field: '#company', value: 'Two-tab Fleet', submit: 'Create customer', table: 'customers', property: 'company'},
+    {link: /add a vehicle/i, field: '#plate', value: 'TWOTAB', submit: 'Add vehicle', table: 'vehicles', property: 'licensePlate'},
+  ]) {
+    await firstChild.getByRole('link', {name: item.link}).click()
+    await firstChild.locator(item.field).fill(item.value)
+    const staleChild = await context.newPage()
+    await staleChild.goto(firstChild.url())
+    assert.equal(await staleChild.locator(item.field).inputValue(), item.value)
+    await freezeIntakeReads(staleChild)
+    await firstChild.getByRole('button', {name: item.submit, exact: true}).click()
+    await firstChild.waitForURL(/\/jobs\/new/)
+    await staleChild.getByRole('button', {name: item.submit, exact: true}).click()
+    await staleChild.waitForURL(url => !url.pathname.endsWith('/new') || url.pathname === '/jobs/new')
+    const count = await firstChild.evaluate(async ({table, property, value}) => {
+      const db = await new Promise(resolve => {
+        const request = indexedDB.open('automech')
+        request.onsuccess = () => resolve(request.result)
+      })
+      try {
+        const rows = await new Promise(resolve => {
+          const request = db.transaction(table).objectStore(table).getAll()
+          request.onsuccess = () => resolve(request.result)
+        })
+        return rows.filter(row => row[property] === value).length
+      } finally { db.close() }
+    }, {table: item.table, property: item.property, value: item.value})
+    assert.equal(count, 1, 'duplicate intake ' + item.table)
+    await staleChild.close()
+  }
+  // A later Add vehicle action within the same intake must still create a fresh record.
+  await firstChild.getByRole('link', {name: /add a vehicle/i}).click()
+  await firstChild.locator('#plate').fill('NEW-REQUEST')
+  await firstChild.getByRole('button', {name: 'Add vehicle', exact: true}).click()
+  await firstChild.locator('#veh option:checked', {hasText: 'NEW-REQUEST'}).waitFor({state: 'attached'})
+  console.log('Stale tabs reuse committed intake customers and vehicles; separate requests create new records.')
+  for (const item of [
+    {link: /add customer/i, field: '#company', submit: 'Create customer', select: '#cust', suffix: '.customer', property: 'company'},
+    {link: /add a vehicle/i, field: '#plate', submit: 'Add vehicle', select: '#veh', property: 'licensePlate'},
+  ]) {
+    const parentURL = firstChild.url()
+    const suffix = item.suffix ?? '.vehicle.' + await firstChild.locator('#cust').inputValue()
+    const pending = 'Pending ' + item.property
+    const replacement = 'Replacement ' + item.property
+    const retry = 'Retry ' + item.property
+    async function interruptLink(value, staleEditor) {
+      await firstChild.getByRole('link', {name: item.link}).click()
+      await firstChild.locator(item.field).fill(value)
+      await firstChild.waitForFunction(({suffix, property, value}) => {
+        const id = new URL(location.href).searchParams.get('draft')
+        return JSON.parse(localStorage.getItem('automech.intake.' + id + suffix))?.[property] === value
+      }, {suffix, property: item.property, value})
+      if (staleEditor) {
+        await staleEditor.goto(firstChild.url())
+        assert.equal(await staleEditor.locator(item.field).inputValue(), value)
+        await freezeIntakeReads(staleEditor)
+      }
+      await failNextDraftSave(firstChild)
+      await firstChild.getByRole('button', {name: item.submit, exact: true}).click()
+      await firstChild.waitForURL(url => !url.pathname.endsWith('/new'))
+      await firstChild.goto(parentURL)
+      await firstChild.locator(item.select + ' option', {hasText: value}).waitFor({state: 'attached'})
+    }
+
+    await interruptLink(pending)
+    await firstChild.getByRole('link', {name: item.link}).click()
+    await firstChild.getByRole('button', {name: 'Cancel', exact: true}).click()
+    await firstChild.getByRole('link', {name: item.link}).click()
+    assert.equal(await firstChild.locator(item.field).inputValue(), '')
+    await firstChild.locator(item.field).fill(replacement)
+    await firstChild.getByRole('button', {name: item.submit, exact: true}).click()
+    await firstChild.waitForURL(parentURL, {timeout: 3000})
+    await firstChild.locator(item.select + ' option:checked', {hasText: replacement}).waitFor({state: 'attached'})
+    assert.equal(await firstChild.locator(item.select + ' option', {hasText: pending}).count(), 1)
+
+    await interruptLink(retry)
+    await firstChild.getByRole('link', {name: item.link}).click()
+    assert.equal(await firstChild.locator(item.field).inputValue(), retry)
+    await firstChild.getByRole('button', {name: item.submit, exact: true}).click()
+    await firstChild.waitForURL(parentURL, {timeout: 3000})
+    await firstChild.locator(item.select + ' option:checked', {hasText: retry}).waitFor({state: 'attached'})
+    assert.equal(await firstChild.locator(item.select + ' option', {hasText: retry}).count(), 1)
+
+    const staleEditor = await context.newPage()
+    await interruptLink('Stale ' + item.property, staleEditor)
+    const previousId = await firstChild.locator(item.select + ' option', {hasText: replacement}).getAttribute('value')
+    await firstChild.locator(item.select).selectOption(previousId)
+    const selection = item.select === '#cust' ? 'customerId' : 'vehicleId'
+    const draftId = new URL(parentURL).searchParams.get('draft')
+    await firstChild.waitForFunction(({draftId, selection, previousId}) =>
+      JSON.parse(localStorage.getItem('automech.intake.' + draftId))[selection] === previousId,
+      {draftId, selection, previousId})
+    await staleEditor.getByRole('button', {name: item.submit, exact: true}).click()
+    await staleEditor.waitForFunction(() => !location.pathname.endsWith('/new') || document.querySelector('[role=alert]'))
+    await firstChild.reload()
+    await firstChild.locator(item.select + ' option:checked', {hasText: replacement}).waitFor({state: 'attached'})
+    assert.equal(await firstChild.locator(item.select).inputValue(), previousId)
+    await staleEditor.close()
+  }
+  console.log('After a failed link, a different submission selects a new record and a matching retry reuses its record.')
+  // All three editors can still leave a draft that another tab has already canceled.
+  const abandoned = reopened
+  await abandoned.goto(base + '/jobs/new?customerId=' + customerId)
+  await abandoned.locator('#cust option:checked', {hasText: 'Harbor Fleet'}).waitFor({state: 'attached'})
+  const abandonedURL = abandoned.url()
+  const abandonedId = new URL(abandonedURL).searchParams.get('draft')
+  const canceledCustomer = vehicleEditor
+  await canceledCustomer.goto(base + '/customers/new?draft=' + abandonedId)
+  const canceledVehicle = submitting
+  await canceledVehicle.goto(base + '/customers/' + customerId + '/vehicles/new?draft=' + abandonedId)
+  const closer = competing
+  await closer.goto(abandonedURL)
+  const blocked = await context.newPage()
+  await blocked.goto(abandonedURL)
+  await blocked.locator('#complaint').waitFor()
+  await closer.locator('#complaint').fill('New complaint in the other tab')
+  await closer.waitForFunction(id => JSON.parse(localStorage.getItem('automech.intake.' + id)).complaint === 'New complaint in the other tab', abandonedId)
+  await abandoned.getByRole('button', {name: 'Cancel', exact: true}).click()
+  await abandoned.waitForURL(base + '/jobs', {timeout: 2500})
+  assert.equal(await closer.evaluate(id => JSON.parse(localStorage.getItem('automech.intake.' + id)).complaint, abandonedId), 'New complaint in the other tab')
+  await abandoned.getByRole('alert').filter({hasText: /discard.*intake/i}).waitFor()
+  await abandoned.getByRole('link', {name: /new job/i}).click()
+  assert.equal(await abandoned.locator('#complaint').inputValue(), '')
+  const freshId = new URL(abandoned.url()).searchParams.get('draft')
+  assert.notEqual(freshId, abandonedId)
+  await abandoned.getByRole('link', {name: /Resume intake.*New complaint in the other tab/}).waitFor()
+  await blocked.evaluate(() => {
+    const removeItem = Storage.prototype.removeItem
+    Storage.prototype.removeItem = function (key) {
+      if (this === sessionStorage && key === 'automech.intake.current') {
+        Storage.prototype.removeItem = removeItem
+        throw new DOMException('Storage unavailable', 'SecurityError')
+      }
+      return removeItem.call(this, key)
+    }
+  })
+  await blocked.getByRole('button', {name: 'Cancel', exact: true}).click()
+  await blocked.getByRole('link', {name: /new job/i}).click()
+  assert.equal(await blocked.locator('#complaint').inputValue(), '')
+  await blocked.getByRole('link', {name: /Resume intake.*New complaint in the other tab/}).click()
+  assert.equal(await blocked.locator('#complaint').inputValue(), 'New complaint in the other tab')
+  await blocked.close()
+
+  for (const [editor, field, value] of [
+    [canceledCustomer, '#company', 'Another customer edit'],
+    [canceledVehicle, '#plate', 'NEWER-PLATE'],
+  ]) {
+    const childURL = editor.url()
+    await firstChild.goto(childURL)
+    await editAndReload(firstChild, field, value)
+    await editor.getByRole('button', {name: 'Cancel', exact: true}).click()
+    await editor.waitForURL(abandonedURL, {timeout: 2500})
+    await editor.getByRole('alert').filter({hasText: /discard.*form/i}).waitFor()
+    assert.equal(await editor.locator('#complaint').inputValue(), 'New complaint in the other tab')
+    await editor.goto(childURL)
+    assert.equal(await editor.locator(field).inputValue(), value)
+  }
+  // If this renderer cannot read the parent at all, Cancel can still go to Jobs.
+  await firstChild.evaluate(id => {
+    const getItem = Storage.prototype.getItem
+    Storage.prototype.getItem = function (key) {
+      if (this === localStorage && key === 'automech.intake.' + id) throw new DOMException('Storage unavailable', 'SecurityError')
+      return getItem.call(this, key)
+    }
+  }, abandonedId)
+  await firstChild.getByRole('button', {name: 'Cancel', exact: true}).click()
+  await firstChild.waitForURL(base + '/jobs', {timeout: 2500})
+  await firstChild.getByRole('alert').filter({hasText: /discard.*form/i}).waitFor()
+  await abandoned.goto(abandonedURL)
+  await abandoned.locator('#complaint').waitFor()
+  await abandoned.evaluate(id => sessionStorage.setItem('automech.intake.current', id), freshId)
+  await closer.getByRole('button', {name: 'Cancel', exact: true}).click()
+  await closer.waitForURL(base + '/jobs')
+  assert.equal(await closer.getByRole('alert').count(), 0)
+  for (const editor of [abandoned, canceledCustomer, canceledVehicle]) {
+    await editor.getByRole('button', {name: 'Cancel', exact: true}).click()
+    await editor.waitForURL(base + '/jobs', {timeout: 2500})
+    await editor.getByRole('alert').filter({hasText: /discard/i}).waitFor()
+  }
+  assert.equal(await abandoned.evaluate(() => sessionStorage.getItem('automech.intake.current')), freshId)
+  assert.equal(await closer.evaluate(id => localStorage.getItem('automech.intake.' + id), abandonedId), null)
+  console.log('A superseded intake cannot overwrite, resurrect or convert the active tab’s draft.')
+  console.log('Browser restart recovers independent intakes and discards expired drafts and child forms.')
+  console.log('Intake retained complaint, mileage and selections across customer/vehicle creation and reload.')
+} finally {
+  await context.close()
+  await rm(profile, { recursive: true, force: true })
+}

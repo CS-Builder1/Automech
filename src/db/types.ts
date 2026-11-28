@@ -50,6 +50,7 @@ export interface Customer {
   email?: string
   address?: string
   notes?: string
+  followUps?: Record<ID, { outcome: string; contactedAt: ISODate }>
   taxExempt?: boolean
   /** Optional per-customer overrides (research §2). */
   laborRateOverride?: number // minor units / hour
@@ -87,17 +88,38 @@ export interface LineItem {
   // Parts
   partNumber?: string
   partStatus?: PartStatus
+  expectedAt?: string // Local calendar date for part delivery
   supplier?: string
   unitCost?: number   // minor units (what the shop pays)
   // Labor
-  hours?: number
+  hours?: number           // billed hours (legacy and flat-rate work)
+  actualHours?: number     // technician time recorded independently
+  hourlyCost?: number      // direct labor cost per actual hour, in minor units
   // Shared
   quantity: number
   unitPrice: number   // minor units (what the customer pays, per unit/hour)
   taxable: boolean
 }
 
+export type ApprovedLine = Pick<LineItem, 'id' | 'kind' | 'description' | 'quantity' | 'unitPrice' | 'taxable' | 'partNumber'>
+
+export interface EstimateSnapshot {
+  currency: string
+  displayCurrency?: string
+  pegRate?: number
+  customerLabel?: string
+  vehicleLabel?: string
+  vehiclePlate?: string
+  lineItems: ApprovedLine[]
+  shopSuppliesPct: number
+  taxRatePct: number
+}
+
 export interface AuthorizationRecord {
+  id?: ID
+  revision?: number
+  currency?: string
+  snapshot?: EstimateSnapshot
   authorizedBy: string      // name of person who approved
   method: AuthMethod
   authorizedAt: ISODate
@@ -109,6 +131,9 @@ export interface AuthorizationRecord {
 export interface WorkOrder {
   id: ID
   number: string            // human-friendly RO number, e.g. RO-1042
+  currency?: string
+  displayCurrency?: string
+  pegRate?: number
   customerId: ID
   vehicleId: ID
   status: WorkOrderStatus
@@ -118,12 +143,14 @@ export interface WorkOrder {
   mileageOut?: number
   lineItems: LineItem[]
   /** Estimate authorization trail. Re-auth required if total exceeds amountAuthorized. */
+  authorizations?: AuthorizationRecord[]
   authorization?: AuthorizationRecord
   /** Work the customer declined — stored for future follow-up revenue. */
   declinedItems?: LineItem[]
   shopSuppliesPct?: number  // shop-supply fee as % of labor+parts
   taxRatePct?: number
   notes?: string
+  technician?: string
   promisedAt?: ISODate | null
   createdAt: ISODate
   updatedAt: ISODate
@@ -137,13 +164,23 @@ export interface Invoice {
   customerId: ID
   vehicleId: ID
   lineItems: LineItem[]
+  currency?: string
+  displayCurrency?: string
+  pegRate?: number
+  shopName?: string
+  shopContact?: string
+  customerName?: string
+  customerContact?: string
+  vehicleLabel?: string
+  workOrderNumber?: string
   subtotal: number
   shopSupplies: number
   tax: number
   total: number
   amountPaid: number
   warrantyTerms?: string
-  issuedAt: ISODate
+  issuedDate?: string
+  issuedAt?: ISODate
   dueAt?: ISODate | null
   createdAt: ISODate
   updatedAt: ISODate
@@ -152,13 +189,36 @@ export interface Invoice {
 
 export interface Payment {
   id: ID
+  /** Empty until a job deposit is applied to its invoice. */
   invoiceId: ID
+  workOrderId?: ID
+  number?: string
+  currency?: string
+  displayCurrency?: string
+  pegRate?: number
+  balanceAfter?: number
+  shopName?: string
+  customerName?: string
+  documentNumber?: string
+  recordedDate?: string
+  reversesPaymentId?: ID
   method: PaymentMethod
   status: PaymentStatus
   amount: number            // minor units
   isDeposit?: boolean
   reference?: string        // external txn id / cheque no.
   note?: string
+  createdAt?: ISODate
+}
+
+export interface Expense {
+  id: ID
+  date: string
+  description: string
+  category: string
+  amount: number
+  currency: string
+  method: PaymentMethod
   createdAt: ISODate
 }
 
@@ -197,6 +257,7 @@ export interface Appointment {
   customerId?: ID
   vehicleId?: ID
   workOrderId?: ID
+  bay?: string
   title: string
   startAt: ISODate
   endAt?: ISODate | null
@@ -207,6 +268,7 @@ export interface Appointment {
 }
 
 export interface ShopSettings {
+  restoreEpoch?: string
   id: 'singleton'
   shopName: string
   ownerName?: string
@@ -223,6 +285,7 @@ export interface ShopSettings {
   defaultTaxRatePct: number
   shopSuppliesPct: number
   roCounter: number
+  receiptCounter?: number
   invoiceCounter: number
   updatedAt: ISODate
 }

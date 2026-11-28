@@ -1,132 +1,75 @@
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useState } from 'react'
+import { Link, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/database'
 import { customersRepo } from '@/repositories/customers'
-import { vehiclesRepo } from '@/repositories/vehicles'
-import { workOrdersRepo } from '@/repositories/workOrders'
-import { useMoney } from '@/hooks/useMoney'
-import { computeTotals } from '@/lib/calc'
-import { STATUS_META } from '@/lib/status'
+import { invoicesForJobs } from '@/repositories/billing'
+import { displayCustomer, displayVehicle, isArchivedJob, lastMileage, vehiclePath } from '@/lib/records'
 import { PageHeader } from '@/components/ui/Page'
 import { Button } from '@/components/ui/Button'
+import { ServiceHistory } from '@/components/ServiceHistory'
 
 export function CustomerDetail() {
   const { id = '' } = useParams()
-  const navigate = useNavigate()
+  const [error, setError] = useState('')
+  const records = useLiveQuery(async () => {
+    const [customer, vehicles, jobs] = await Promise.all([
+      db.customers.get(id), db.vehicles.where('customerId').equals(id).toArray(), db.workOrders.where('customerId').equals(id).toArray(),
+    ])
+    const invoicesByJob = await invoicesForJobs(jobs)
+    return { customer, vehicles, invoicesByJob, jobs: jobs.sort((a, b) => b.createdAt.localeCompare(a.createdAt)) }
+  }, [id])
+  if (!records) return <p>Loading…</p>
+  const { customer, vehicles, jobs } = records
+  if (!customer) return <p>Customer not found. <Link to="/customers" className="underline">Back to customers</Link></p>
+  const archived = Boolean(customer.deletedAt)
+  const vehiclesById = new Map(vehicles.map(v => [v.id, v]))
 
-  const money = useMoney()
-  const customer = useLiveQuery(() => db.customers.get(id), [id])
-  const vehicles = useLiveQuery(async () => vehiclesRepo.forCustomer(id), [id])
-  const jobs = useLiveQuery(async () => workOrdersRepo.forCustomer(id), [id])
-
-  if (customer === undefined) return <p className="text-sm text-slate-400">Loading…</p>
-  if (!customer || customer.deletedAt) return <p className="text-sm text-slate-400">Customer not found.</p>
-
-  async function remove() {
-    if (!confirm('Delete this customer? Their vehicles will be hidden too.')) return
-    await customersRepo.softDelete(id)
-    navigate('/customers')
+  async function changeArchive() {
+    const activeVehicles = vehicles.filter(v => !v.deletedAt).length
+    const activeJobs = jobs.filter(job => !isArchivedJob(job, customer, vehiclesById.get(job.vehicleId))).length
+    if (!archived && !confirm(`Archive this customer with ${activeVehicles} vehicle(s) and ${activeJobs} job(s)? Their history will stay available in Archived. Restore the customer to resume work.`)) return
+    try { await customersRepo.setArchived(id, !archived); setError('') }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not update this customer.') }
   }
-
-  return (
-    <div className="mx-auto max-w-2xl">
-      <PageHeader
-        title={`${customer.firstName} ${customer.lastName}`}
-        subtitle={customer.company || undefined}
-        action={
-          <Link to={`/customers/${id}/edit`}>
-            <Button variant="secondary" size="sm">Edit</Button>
-          </Link>
-        }
-      />
-
-      <div className="card mb-5 divide-y divide-slate-100 dark:divide-slate-800">
-        <ContactRow label="Phone" value={customer.phone} href={customer.phone ? `tel:${customer.phone}` : undefined} />
-        <ContactRow label="Email" value={customer.email} href={customer.email ? `mailto:${customer.email}` : undefined} />
-        <ContactRow label="Address" value={customer.address} />
-        {customer.notes && <ContactRow label="Notes" value={customer.notes} />}
-      </div>
-
-      <div className="mb-2 flex items-center justify-between">
-        <h2 className="font-semibold">Vehicles</h2>
-        <Link to={`/customers/${id}/vehicles/new`}>
-          <Button size="sm">+ Add vehicle</Button>
-        </Link>
-      </div>
-
-      {vehicles && vehicles.length > 0 ? (
-        <ul className="space-y-2">
-          {vehicles.map((v) => (
-            <li key={v.id}>
-              <Link to={`/customers/${id}/vehicles/${v.id}/edit`} className="card flex items-center justify-between px-4 py-3 hover:border-brand-300">
-                <div>
-                  <div className="font-semibold">
-                    {[v.year, v.make, v.model].filter(Boolean).join(' ') || 'Vehicle'}
-                  </div>
-                  <div className="text-sm text-slate-500 dark:text-slate-400">
-                    {[v.licensePlate && `Plate ${v.licensePlate}`, v.vin && `VIN ${v.vin}`, v.mileage && `${v.mileage.toLocaleString()} mi`]
-                      .filter(Boolean).join(' · ') || 'No details yet'}
-                  </div>
-                </div>
-                <span className="text-xl">{v.type === 'motorcycle' ? '🏍️' : v.type === 'truck' ? '🚚' : '🚗'}</span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="card px-4 py-6 text-center text-sm text-slate-500 dark:text-slate-400">
-          No vehicles yet. Add one and decode the VIN to auto-fill the details.
-        </p>
-      )}
-
-      <div className="mb-2 mt-6 flex items-center justify-between">
-        <h2 className="font-semibold">Jobs</h2>
-        <Link to={`/jobs/new?customerId=${id}`}>
-          <Button size="sm" variant="secondary">+ Start job</Button>
-        </Link>
-      </div>
-      {jobs && jobs.length > 0 ? (
-        <ul className="space-y-2">
-          {jobs.map((w) => (
-            <li key={w.id}>
-              <Link to={`/jobs/${w.id}`} className="card flex items-center justify-between px-4 py-3 hover:border-brand-300">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold">{w.number}</span>
-                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_META[w.status].color}`}>
-                      {STATUS_META[w.status].label}
-                    </span>
-                  </div>
-                  <div className="text-sm text-slate-500 dark:text-slate-400">
-                    {new Date(w.createdAt).toLocaleDateString()}
-                  </div>
-                </div>
-                <span className="font-semibold tabular-nums">{money(computeTotals(w).total)}</span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="card px-4 py-5 text-center text-sm text-slate-500 dark:text-slate-400">No jobs yet.</p>
-      )}
-
-      <div className="mt-8">
-        <Button variant="ghost" size="sm" onClick={remove} className="!text-red-600">Delete customer</Button>
-      </div>
+  return <div className="mx-auto max-w-2xl space-y-5">
+    <PageHeader title={displayCustomer(customer)} subtitle={customer.company !== displayCustomer(customer) ? customer.company : undefined}
+      action={!archived && <Link className="rounded-xl bg-slate-200 px-3 py-2 font-semibold dark:bg-slate-800" to={`/customers/${id}/edit`}>Edit customer</Link>} />
+    {archived && <p className="card p-3">Archived customer. Restore this record to make changes or start a job.</p>}
+    <div className="card divide-y divide-slate-100 dark:divide-slate-800">
+      <ContactRow label="Phone" value={customer.phone} href={customer.phone ? `tel:${customer.phone}` : undefined} />
+      <ContactRow label="Email" value={customer.email} href={customer.email ? `mailto:${customer.email}` : undefined} />
+      <ContactRow label="Address" value={customer.address} />
+      <ContactRow label="Notes" value={customer.notes} />
     </div>
-  )
+    <section>
+      <div className="mb-2 flex items-center justify-between gap-2"><h2 className="font-semibold">Vehicles</h2>
+        {!archived && <Link className="rounded-xl bg-brand-600 px-3 py-2 font-semibold text-white" to={`/customers/${id}/vehicles/new`}>+ Add vehicle</Link>}
+      </div>
+      {vehicles.length ? <ul className="space-y-2">{vehicles.map((v) => {
+        const mileage = lastMileage(v, jobs.filter((w) => w.vehicleId === v.id))
+        return <li key={v.id}><Link className="card block break-words px-4 py-3 hover:border-brand-300" to={vehiclePath(v)}>
+          <strong>{displayVehicle(v)}{(v.deletedAt || archived) && ' · Archived'}</strong>
+          <p className="text-sm text-slate-500">{[v.licensePlate && `Plate ${v.licensePlate}`, v.vin && `VIN ${v.vin}`, mileage !== undefined && `${mileage.toLocaleString()} mi`].filter(Boolean).join(' · ')}</p>
+        </Link></li>
+      })}</ul> : <p className="card p-4 text-sm text-slate-500">No vehicles yet.</p>}
+    </section>
+    <section>
+      <div className="mb-2 flex items-center justify-between gap-2"><h2 className="font-semibold">Service history</h2>
+        {!archived && <Link className="rounded-xl bg-slate-200 px-3 py-2 font-semibold dark:bg-slate-800" to={`/jobs/new?customerId=${id}`}>+ Start job</Link>}
+      </div>
+      <ServiceHistory jobs={jobs} vehicles={vehiclesById} invoicesByJob={records.invoicesByJob} />
+    </section>
+    <Button variant="secondary" onClick={changeArchive}>{archived ? 'Restore customer' : 'Archive customer'}</Button>
+    {error && <p role="alert">{error}</p>}
+  </div>
 }
 
 function ContactRow({ label, value, href }: { label: string; value?: string; href?: string }) {
   if (!value) return null
-  return (
-    <div className="flex items-center justify-between px-4 py-3">
-      <span className="text-sm text-slate-500 dark:text-slate-400">{label}</span>
-      {href ? (
-        <a href={href} className="font-medium text-brand-600 dark:text-brand-400">{value}</a>
-      ) : (
-        <span className="text-right font-medium">{value}</span>
-      )}
-    </div>
-  )
+  return <div className="flex items-start justify-between gap-3 px-4 py-3">
+    <span className="shrink-0 text-sm text-slate-500">{label}</span>
+    {href ? <a href={href} className="min-w-0 break-all text-right font-medium text-brand-600 dark:text-brand-400">{value}</a>
+      : <span className="min-w-0 whitespace-pre-wrap break-words text-right">{value}</span>}
+  </div>
 }

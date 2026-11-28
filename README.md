@@ -1,31 +1,32 @@
 # Automech
 
-Mobile-first, **offline-first** shop management for solo & small auto repair shops.
-One codebase ships to web (PWA), iOS, Android and desktop.
+Automech is an offline-first repair shop app for the web. Install the production PWA to keep working on the same device when the network drops.
 
-## Quick start
+## Run locally
 
-```bash
-npm install
-npm run dev      # http://localhost:5173  — test in any browser, installable as a PWA
-npm run build    # type-check + production build
-npm run preview  # serve the production build
+Use Node.js 24 and npm from the repository root.
+
+```sh
+npm ci
+npm run dev
 ```
 
-Open it on your phone's browser and "Add to Home Screen" to test the installed,
-offline experience. Everything you enter is saved on the device first.
+Run `npm run build` and `npm run preview` to serve the production build with its offline service worker.
 
-## What's in Sprint 1
+## Run a shop day
 
-- Customer & vehicle CRM (offline-first, on-device IndexedDB).
-- **VIN decode** via the free NHTSA vPIC API (auto-fills year/make/model/engine).
-- Shop settings with **multi-currency** (e.g. USD billed, XCD displayed at the 2.70 peg).
-- Responsive shell: bottom-nav on phones, sidebar on desktop; light/dark.
+- Start at **Home → New job** for a walk-in. Add the customer and vehicle during intake, or use **Find vehicle or job** to retrieve an existing record by plate, VIN, phone or repair order.
+- Open **Schedule** to book a bay, check pickups, contact customers, and receive parts. The repair order holds technician assignments, inspection findings, estimates and versioned customer approvals.
+- On a completed repair order, use **Issue invoice**. Record a deposit or payment when the shop receives the money. **Billing** provides receipts, outstanding balances, expenses and a daily CSV. Manual payment entries record an external transaction.
+- Use **Settings → Backup and restore** to download shop records and restore them in another browser. Store backups securely. The primary database lives in this browser profile.
+- A download named `automech-manual-recovery-…` preserves records that need repair. Keep the file and the original browser profile. In the recovery file, `payload.problem` identifies the validation failure and `payload.specialValues` lists values JSON cannot represent, with paths into `payload.tables`. After repairing the records, download a new shop backup for Restore.
 
-See **[ROADMAP.md](./ROADMAP.md)** for the full sprint plan, the extra features
-being recommended beyond the research, and the PayPal payment integration plan.
+## Verify changes
 
-## Tech
+```sh
+npm test
+```
 
-React + TypeScript + Vite (PWA) · Dexie/IndexedDB (offline) · Tailwind CSS ·
-Capacitor (native packaging, later) · Supabase (cloud sync, later).
+This runs the TypeScript checks, builds the PWA, then exercises shop records, approvals, billing, scheduling, accessibility, offline operation and backup recovery. Tests use disposable browser profiles. Install Chromium and set `CHROMIUM_PATH` to its executable if it differs from `/usr/bin/chromium`. The VIN journey supplies sample NHTSA responses to test both decoding and an unavailable service.
+
+See [the product roadmap](ROADMAP.md) for longer-term plans.

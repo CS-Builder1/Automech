@@ -1,59 +1,87 @@
-import { useEffect, useState } from 'react'
-import { useSettings, saveSettings } from '@/hooks/useSettings'
+import { useState } from 'react'
+import type { ShopSettings } from '@/db/types'
+import { useSettingsSnapshot, saveSettings } from '@/hooks/useSettings'
 import { PageHeader } from '@/components/ui/Page'
+import { BackupSettings } from '@/components/BackupSettings'
 import { Button } from '@/components/ui/Button'
 import { Field, TextInput } from '@/components/ui/Field'
-import { parseAmountToMinor, minorToDecimal } from '@/lib/money'
+import { parseRate, parseAmountToMinor, minorToDecimal } from '@/lib/money'
 
 const CURRENCIES = ['USD', 'XCD', 'EUR', 'GBP', 'CAD', 'TTD', 'JMD']
 
+function settingsForm(settings: ShopSettings) {
+  return {
+    shopName: settings.shopName, ownerName: settings.ownerName ?? '', phone: settings.phone ?? '',
+    email: settings.email ?? '', address: settings.address ?? '',
+    currency: settings.currency, displayCurrency: settings.displayCurrency ?? '',
+    pegRate: settings.pegRate?.toString() ?? '',
+    defaultLaborRate: minorToDecimal(settings.defaultLaborRate).toString(),
+    defaultTaxRatePct: settings.defaultTaxRatePct.toString(),
+    defaultPartsMarkupPct: settings.defaultPartsMarkupPct.toString(),
+    shopSuppliesPct: settings.shopSuppliesPct.toString(),
+  }
+}
+
+type SettingsEdits = Partial<ReturnType<typeof settingsForm>>
+
 export function Settings() {
-  const settings = useSettings()
-  const [form, setForm] = useState({
-    shopName: '', ownerName: '', phone: '', email: '', address: '',
-    currency: 'USD', displayCurrency: '', pegRate: '',
-    defaultLaborRate: '', defaultTaxRatePct: '', defaultPartsMarkupPct: '', shopSuppliesPct: '',
-  })
+  const [revision, setRevision] = useState(0)
+  const snapshot = useSettingsSnapshot(revision)
+  const [submitted, setSubmitted] = useState<{ revision: number; edits: SettingsEdits } | null>(null)
+  const [edits, setEdits] = useState<SettingsEdits>({})
+  const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
+  if (!snapshot?.settings) return <p className="text-sm text-slate-400">Loading…</p>
 
-  useEffect(() => {
-    if (!settings) return
-    setForm({
-      shopName: settings.shopName, ownerName: settings.ownerName ?? '', phone: settings.phone ?? '',
-      email: settings.email ?? '', address: settings.address ?? '',
-      currency: settings.currency, displayCurrency: settings.displayCurrency ?? '',
-      pegRate: settings.pegRate?.toString() ?? '',
-      defaultLaborRate: minorToDecimal(settings.defaultLaborRate).toString(),
-      defaultTaxRatePct: settings.defaultTaxRatePct.toString(),
-      defaultPartsMarkupPct: settings.defaultPartsMarkupPct.toString(),
-      shopSuppliesPct: settings.shopSuppliesPct.toString(),
+  // Keep the submitted values visible until a query started after that write returns.
+  const pending = submitted && submitted.revision !== snapshot.revision ? submitted : null
+  const base = { ...settingsForm(snapshot.settings), ...pending?.edits }
+  const form = { ...base, ...edits }
+  const set = (key: keyof typeof form) => (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const value = event.target.value
+    setEdits(current => {
+      const next = { ...current, [key]: value }
+      if (value === base[key]) delete next[key]
+      return next
     })
-  }, [settings])
-
-  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
-    setForm((f) => ({ ...f, [k]: e.target.value }))
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
-    await saveSettings({
-      shopName: form.shopName.trim() || 'My Shop',
-      ownerName: form.ownerName.trim() || undefined,
-      phone: form.phone.trim() || undefined,
-      email: form.email.trim() || undefined,
-      address: form.address.trim() || undefined,
-      currency: form.currency,
-      displayCurrency: form.displayCurrency || undefined,
-      pegRate: form.pegRate ? parseFloat(form.pegRate) : undefined,
-      defaultLaborRate: parseAmountToMinor(form.defaultLaborRate),
-      defaultTaxRatePct: parseFloat(form.defaultTaxRatePct) || 0,
-      defaultPartsMarkupPct: parseFloat(form.defaultPartsMarkupPct) || 0,
-      shopSuppliesPct: parseFloat(form.shopSuppliesPct) || 0,
-    })
+    if (pending) return
+    setError('')
+    try {
+      const usePeg = Boolean(form.displayCurrency && form.displayCurrency !== form.currency)
+      const pegRate = usePeg ? parseRate(form.pegRate, 'Exchange rate') : undefined
+      if (pegRate === 0) throw Error('Exchange rate must be greater than zero.')
+      const patch = {
+        shopName: form.shopName.trim() || 'My Shop',
+        ownerName: form.ownerName.trim() || undefined,
+        phone: form.phone.trim() || undefined,
+        email: form.email.trim() || undefined,
+        address: form.address.trim() || undefined,
+        currency: form.currency,
+        displayCurrency: usePeg ? form.displayCurrency : undefined,
+        pegRate,
+        defaultLaborRate: parseAmountToMinor(form.defaultLaborRate),
+        defaultTaxRatePct: parseRate(form.defaultTaxRatePct || '0', 'Tax rate'),
+        defaultPartsMarkupPct: parseRate(form.defaultPartsMarkupPct || '0', 'Parts markup'),
+        shopSuppliesPct: parseRate(form.shopSuppliesPct || '0', 'Shop supplies'),
+      }
+      const nextRevision = revision + 1
+      setSubmitted({ revision: nextRevision, edits })
+      setEdits({})
+      await saveSettings(patch)
+      setRevision(nextRevision)
+    } catch (cause) {
+      setSubmitted(null)
+      setEdits(current => ({ ...edits, ...current }))
+      setError(cause instanceof Error ? cause.message : 'Could not save shop settings.')
+      return
+    }
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
-
-  if (!settings) return <p className="text-sm text-slate-400">Loading…</p>
 
   return (
     <div className="mx-auto max-w-xl">
@@ -120,13 +148,16 @@ export function Settings() {
           </div>
         </section>
 
+        {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
         <div className="flex items-center gap-3">
-          <Button type="submit">Save settings</Button>
+          <Button type="submit" aria-disabled={!!pending} className="aria-disabled:cursor-not-allowed aria-disabled:opacity-60">Save settings</Button>
           {saved && <span className="text-sm font-medium text-emerald-600">Saved ✓</span>}
         </div>
       </form>
 
-      <p className="mt-8 text-center text-xs text-slate-400">Automech v0.1 · Sprint 1 · data stored on this device</p>
+      <BackupSettings />
+
+      <p className="mt-8 text-center text-xs text-slate-400">Shop records are stored in this browser.</p>
     </div>
   )
 }

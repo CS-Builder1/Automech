@@ -2,10 +2,32 @@
 // Display supports a pegged secondary currency (e.g. XCD pegged to USD at 2.70).
 
 export function parseAmountToMinor(input: string): number {
-  const cleaned = input.replace(/[^0-9.-]/g, '')
-  const value = parseFloat(cleaned)
-  if (Number.isNaN(value)) return 0
-  return Math.round(value * 100)
+  const value = input.trim()
+  if (!/^\d+(?:[.,]\d{1,2})?$/.test(value)) {
+    throw new Error('Enter a nonnegative amount with up to two decimal places and no grouping separators.')
+  }
+  const [whole, fraction = ''] = value.split(/[.,]/)
+  const minor = Number(whole) * 100 + Number(fraction.padEnd(2, '0'))
+  if (!Number.isSafeInteger(minor)) throw new Error('Amount is too large.')
+  return minor
+}
+
+function parseNonnegativeDecimal(input: string, label: string): number {
+  const raw = input.trim()
+  const value = Number(raw.replace(',', '.'))
+  const ambiguousGroup = /,\d{3}$/.test(raw) && !raw.startsWith('0,')
+  if (!/^\d+(?:[.,]\d+)?$/.test(raw) || ambiguousGroup || value > Number.MAX_SAFE_INTEGER) {
+    throw new Error(label + ' must be a nonnegative number without grouping separators.')
+  }
+  return value
+}
+
+export function parseRate(input: string, label = 'Rate'): number {
+  return parseNonnegativeDecimal(input, label)
+}
+
+export function parseQuantity(input: string, label = 'Quantity'): number {
+  return parseNonnegativeDecimal(input, label)
 }
 
 export function minorToDecimal(minor: number): number {
@@ -17,6 +39,12 @@ export interface FormatOptions {
   /** Optional pegged display currency + rate (display units per 1 base unit). */
   displayCurrency?: string
   pegRate?: number
+}
+
+export function displayPair(currency: string, displayCurrency?: string, pegRate?: number): Pick<FormatOptions, 'displayCurrency' | 'pegRate'> {
+  return displayCurrency && displayCurrency !== currency && pegRate !== undefined && Number.isFinite(pegRate) && pegRate > 0
+    ? { displayCurrency, pegRate }
+    : {}
 }
 
 function fmt(minor: number, currency: string): string {
