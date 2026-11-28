@@ -59,7 +59,7 @@ function Intake({ id, initial, others }: {
   const vehicle = picked ?? (!draft.vehicleId && availableVehicles.length === 1 ? availableVehicles[0] : undefined)
 
   async function change(patch: Partial<IntakeDraft>) {
-    const next = { ...draft, ...patch }
+    const next = { ...draft, ...patch, childRevision: (draft.childRevision ?? 0) + 1 }
     setDraft(next)
     try {
       await autosave.save(next)

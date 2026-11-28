@@ -69,6 +69,8 @@ function recoveryValues(tables: BackupTables) {
 
 export async function createBackup() {
   const original = await readAll(db)
+  // Child submission receipts belong to device-local intake drafts.
+  for (const row of [...original.customers, ...original.vehicles]) delete row.intakeReceipt
   let tables = Dexie.deepClone(original)
   cleanLegacyNumbers(tables, 'database')
   for (const row of tables.settings) delete row.restoreEpoch

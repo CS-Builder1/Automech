@@ -142,7 +142,7 @@ function VehicleEditor({ customerId, vehicleId, draft }: { customerId: string; v
       setError('Enter a four-digit year and whole-number mileage, or leave them blank.')
       return
     }
-    const payload = {
+    const input = {
       customerId,
       type: form.type,
       vin: form.vin.trim().toUpperCase() || undefined,
@@ -155,8 +155,8 @@ function VehicleEditor({ customerId, vehicleId, draft }: { customerId: string; v
       color: form.color.trim() || undefined,
       mileage,
       notes: form.notes.trim() || undefined,
-      vinDecode,
     }
+    const payload = { ...input, vinDecode }
     busy.current = true
     setSaving(true)
     try {
@@ -165,7 +165,7 @@ function VehicleEditor({ customerId, vehicleId, draft }: { customerId: string; v
         navigate(recordPath)
       } else {
         const path = await createIntakeRecord(cacheKey, blankVehicle, await autosave.lastSaved(), parent, {
-          table: db.vehicles, create: id => vehiclesRepo.create(payload, id), path: () => recordPath,
+          table: db.vehicles, input, create: id => vehiclesRepo.create(payload, id), path: () => recordPath,
           selection: v => ({ customerId, vehicleId: v.id }),
         })
         navigate(path, { replace: true })

@@ -37,6 +37,17 @@ async function failNextDraftSave(page, suffix = '') {
   }, 'automech.intake.' + id + suffix)
 }
 
+async function freezeIntakeReads(page) {
+  await page.evaluate(() => {
+    const read = Storage.prototype.getItem
+    const cached = new Map(Object.keys(localStorage).map(key => [key, localStorage.getItem(key)]))
+    Storage.prototype.getItem = function (key) {
+      if (this === localStorage && key.startsWith('automech.intake.')) return cached.get(key) ?? null
+      return read.call(this, key)
+    }
+  })
+}
+
 let context = await launch()
 try {
   const page = await context.newPage()
@@ -242,14 +253,7 @@ try {
     const staleChild = await context.newPage()
     await staleChild.goto(firstChild.url())
     assert.equal(await staleChild.locator(item.field).inputValue(), item.value)
-    await staleChild.evaluate(() => {
-      const read = Storage.prototype.getItem
-      const cached = new Map(Object.keys(localStorage).map(key => [key, localStorage.getItem(key)]))
-      Storage.prototype.getItem = function (key) {
-        if (this === localStorage && key.startsWith('automech.intake.')) return cached.get(key) ?? null
-        return read.call(this, key)
-      }
-    })
+    await freezeIntakeReads(staleChild)
     await firstChild.getByRole('button', {name: item.submit, exact: true}).click()
     await firstChild.waitForURL(/\/jobs\/new/)
     await staleChild.getByRole('button', {name: item.submit, exact: true}).click()
@@ -276,6 +280,70 @@ try {
   await firstChild.getByRole('button', {name: 'Add vehicle', exact: true}).click()
   await firstChild.locator('#veh option:checked', {hasText: 'NEW-REQUEST'}).waitFor({state: 'attached'})
   console.log('Stale tabs reuse committed intake customers and vehicles; separate requests create new records.')
+  for (const item of [
+    {link: /add customer/i, field: '#company', submit: 'Create customer', select: '#cust', suffix: '.customer', property: 'company'},
+    {link: /add a vehicle/i, field: '#plate', submit: 'Add vehicle', select: '#veh', property: 'licensePlate'},
+  ]) {
+    const parentURL = firstChild.url()
+    const suffix = item.suffix ?? '.vehicle.' + await firstChild.locator('#cust').inputValue()
+    const pending = 'Pending ' + item.property
+    const replacement = 'Replacement ' + item.property
+    const retry = 'Retry ' + item.property
+    async function interruptLink(value, staleEditor) {
+      await firstChild.getByRole('link', {name: item.link}).click()
+      await firstChild.locator(item.field).fill(value)
+      await firstChild.waitForFunction(({suffix, property, value}) => {
+        const id = new URL(location.href).searchParams.get('draft')
+        return JSON.parse(localStorage.getItem('automech.intake.' + id + suffix))?.[property] === value
+      }, {suffix, property: item.property, value})
+      if (staleEditor) {
+        await staleEditor.goto(firstChild.url())
+        assert.equal(await staleEditor.locator(item.field).inputValue(), value)
+        await freezeIntakeReads(staleEditor)
+      }
+      await failNextDraftSave(firstChild)
+      await firstChild.getByRole('button', {name: item.submit, exact: true}).click()
+      await firstChild.waitForURL(url => !url.pathname.endsWith('/new'))
+      await firstChild.goto(parentURL)
+      await firstChild.locator(item.select + ' option', {hasText: value}).waitFor({state: 'attached'})
+    }
+
+    await interruptLink(pending)
+    await firstChild.getByRole('link', {name: item.link}).click()
+    await firstChild.getByRole('button', {name: 'Cancel', exact: true}).click()
+    await firstChild.getByRole('link', {name: item.link}).click()
+    assert.equal(await firstChild.locator(item.field).inputValue(), '')
+    await firstChild.locator(item.field).fill(replacement)
+    await firstChild.getByRole('button', {name: item.submit, exact: true}).click()
+    await firstChild.waitForURL(parentURL, {timeout: 3000})
+    await firstChild.locator(item.select + ' option:checked', {hasText: replacement}).waitFor({state: 'attached'})
+    assert.equal(await firstChild.locator(item.select + ' option', {hasText: pending}).count(), 1)
+
+    await interruptLink(retry)
+    await firstChild.getByRole('link', {name: item.link}).click()
+    assert.equal(await firstChild.locator(item.field).inputValue(), retry)
+    await firstChild.getByRole('button', {name: item.submit, exact: true}).click()
+    await firstChild.waitForURL(parentURL, {timeout: 3000})
+    await firstChild.locator(item.select + ' option:checked', {hasText: retry}).waitFor({state: 'attached'})
+    assert.equal(await firstChild.locator(item.select + ' option', {hasText: retry}).count(), 1)
+
+    const staleEditor = await context.newPage()
+    await interruptLink('Stale ' + item.property, staleEditor)
+    const previousId = await firstChild.locator(item.select + ' option', {hasText: replacement}).getAttribute('value')
+    await firstChild.locator(item.select).selectOption(previousId)
+    const selection = item.select === '#cust' ? 'customerId' : 'vehicleId'
+    const draftId = new URL(parentURL).searchParams.get('draft')
+    await firstChild.waitForFunction(({draftId, selection, previousId}) =>
+      JSON.parse(localStorage.getItem('automech.intake.' + draftId))[selection] === previousId,
+      {draftId, selection, previousId})
+    await staleEditor.getByRole('button', {name: item.submit, exact: true}).click()
+    await staleEditor.waitForFunction(() => !location.pathname.endsWith('/new') || document.querySelector('[role=alert]'))
+    await firstChild.reload()
+    await firstChild.locator(item.select + ' option:checked', {hasText: replacement}).waitFor({state: 'attached'})
+    assert.equal(await firstChild.locator(item.select).inputValue(), previousId)
+    await staleEditor.close()
+  }
+  console.log('After a failed link, a different submission selects a new record and a matching retry reuses its record.')
   // All three editors can still leave a draft that another tab has already canceled.
   const abandoned = reopened
   await abandoned.goto(base + '/jobs/new?customerId=' + customerId)

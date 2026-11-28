@@ -55,18 +55,47 @@ function editIntake<T>(id: string, action: () => T | Promise<T>, extraTables: st
   })
 }
 
+type ChildAttempt = { id: string; input: Record<string, unknown> }
+type ChildReceipt = { revision: number } & ({ attempts: ChildAttempt[] } | { selectedId: string })
+type IntakeChild = { id: string; intakeReceipt?: ChildReceipt }
+
+// A different child form or parent editor can supersede a pending link. Seal
+// it in IndexedDB so even a renderer with a cached parent cannot publish it.
+async function sealPendingChildren(id: string, parent: IntakeDraft) {
+  const revision = parent.childRevision ?? 0
+  await Promise.all([
+    { name: 'customers', key: id + '.customer' },
+    { name: 'vehicles', key: id + '.vehicle.' + parent.customerId },
+  ].map(async ({ name, key }) => {
+    const table = db.table<IntakeChild, string>(name)
+    const ids = [key + '~' + revision]
+    // If the previous link's sealing transaction aborted, its row still exists.
+    if (revision > 0) ids.push(key + '~' + (revision - 1))
+    const legacyId = localStorage.getItem(prefix + key + '.recordId')
+    if (legacyId) ids.push(legacyId)
+    for (const row of await table.bulkGet(ids)) {
+      if (!row || (row.intakeReceipt && 'selectedId' in row.intakeReceipt)) continue
+      const attempts = row.intakeReceipt?.attempts
+      const selectedId = attempts?.[attempts.length - 1]?.id ?? row.id
+      await table.update(row.id, { intakeReceipt: { revision: row.intakeReceipt?.revision ?? revision, selectedId } })
+    }
+  }))
+}
+
 export function updateIntake(id: string, expected: IntakeDraft, next: IntakeDraft) {
-  return editIntake(id, () => {
+  return editIntake(id, async () => {
     requireCurrentDraft(id, expected)
+    await sealPendingChildren(id, expected)
     saveDraft(id, next)
-  })
+  }, ['customers', 'vehicles'])
 }
 
 export function cancelIntake(id: string, expected: IntakeDraft) {
-  return editIntake(id, () => {
+  return editIntake(id, async () => {
     requireCurrentDraft(id, expected)
+    await sealPendingChildren(id, expected)
     finishIntake(id)
-  })
+  }, ['customers', 'vehicles'])
 }
 
 // Draft IDs contain no dots. Child forms share their parent's ID as a prefix.
@@ -177,7 +206,6 @@ export async function saveIntakeForm<T extends object>(key: string | null, defau
   const id = key.split('.')[0]
   await editIntake(id, () => {
     checkChildForm(key, defaults, expected)
-    localStorage.removeItem(prefix + key + '.recordId') // Pending receipt from an older app version.
     if (next) {
       saveDraft(id, requireDraft(id))
       localStorage.setItem(prefix + key, JSON.stringify(next))
@@ -188,7 +216,7 @@ export async function saveIntakeForm<T extends object>(key: string | null, defau
 export async function createIntakeRecord<T extends object, R extends { id: string }>(
   formKey: string | null, defaults: T, expected: T, parent: IntakeDraft | null,
   record: {
-    table: Table<R, string>; create: (id?: string) => Promise<R>; path: (record: R) => string
+    table: Table<R, string>; input: Partial<R>; create: (id?: string) => Promise<R>; path: (record: R) => string
     selection: (record: R) => Pick<IntakeDraft, 'customerId' | 'vehicleId'>
   },
 ) {
@@ -203,25 +231,50 @@ export async function createIntakeRecord<T extends object, R extends { id: strin
     requireUnchanged(requireDraft(id), parent, ['customerId', 'vehicleId', 'childRevision'])
     checkChildForm(key, defaults, expected)
   }
+  const table = record.table as Table<R & IntakeChild, string>
+  const input: Record<string, unknown> = { ...record.input }
+  const fields = Object.keys(input)
   const saved = await editIntake(id, async () => {
     checkForm()
-    const existing = await record.table.get(recordId)
-    if (existing) return { row: existing, replay: true }
     const legacyId = localStorage.getItem(legacyReceipt)
-    const previous = legacyId && await record.table.get(legacyId)
-    return { row: previous || await record.create(recordId), replay: false }
+    const legacy = legacyId ? await table.get(legacyId) : undefined
+    const first = await table.get(recordId) ?? (legacy?.intakeReceipt && legacy.intakeReceipt.revision !== revision ? undefined : legacy)
+    const receipt = first?.intakeReceipt
+    if (first && receipt && 'selectedId' in receipt) {
+      return { row: await table.get(receipt.selectedId) ?? first }
+    }
+    // Older releases wrote the row without a receipt. Compare its persisted
+    // fields so the first retry after an upgrade can recognize it.
+    const attempts = receipt && 'attempts' in receipt ? receipt.attempts : (first
+      ? [{ id: first.id, input: Object.fromEntries(fields.map(field => [field, first[field as keyof R]])) }]
+      : [])
+    const match = attempts.find(attempt => fields.every(field => attempt.input[field] === input[field]))
+    const row = match ? await table.get(match.id) : await record.create(first ? newId() : recordId)
+    if (!row) throw new Error('This intake record is unavailable. Reload the intake to continue.')
+    const anchor = first ?? row
+    const next = [...attempts.filter(attempt => attempt !== match), { id: row.id, input }]
+    await table.put({ ...anchor, intakeReceipt: { revision, attempts: next } })
+    return { row, receiptId: anchor.id }
   }, ['customers', 'vehicles'])
-  // A stale renderer must not reapply an old parent selection.
-  if (saved.replay) return record.path(saved.row)
+  const { row, receiptId } = saved
+  if (!receiptId) return record.path(row)
 
   try {
-    return await editIntake(id, () => {
+    return await editIntake(id, async () => {
       checkForm()
-      saveDraft(id, { ...requireDraft(id), ...record.selection(saved.row), childRevision: revision + 1 })
+      const anchor = await table.get(receiptId)
+      const receipt = anchor?.intakeReceipt
+      if (!anchor || !receipt || !('attempts' in receipt) || receipt.attempts[receipt.attempts.length - 1]?.id !== row.id) {
+        return record.path(row)
+      }
+      const current = requireDraft(id)
+      await table.put({ ...anchor, intakeReceipt: { revision, selectedId: row.id } })
+      await sealPendingChildren(id, current)
+      saveDraft(id, { ...current, ...record.selection(row), childRevision: revision + 1 })
       localStorage.removeItem(prefix + key)
       localStorage.removeItem(legacyReceipt)
       return intakePath(id)
-    })
+    }, ['customers', 'vehicles'])
   } catch {
     // The record was committed even if the intake was closed or changed in another tab.
     return record.path(saved.row)
