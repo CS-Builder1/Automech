@@ -382,7 +382,6 @@ try {
   await upload(destination, historical)
   await destination.waitForFunction(() => window.restorePaused)
   const duringRestore = await destination.context().newPage()
-  await duringRestore.clock.install()
   await duringRestore.addInitScript(() => {
     const original = IDBFactory.prototype.deleteDatabase
     window.deletionRequests = []
@@ -391,11 +390,20 @@ try {
       return original.call(this, name)
     }
   })
-  await duringRestore.goto(origin + '/settings')
-  await duringRestore.getByRole('button', { name: 'Download backup' }).waitFor()
   const activeName = await destination.evaluate(() => window.restorePaused)
-  await duringRestore.waitForFunction(name => window.deletionRequests.includes(name + '-owner'), activeName)
-  const namesDuringGrace = await duringRestore.evaluate(async () => (await indexedDB.databases()).map(info => info.name))
+  const storageKeys = await destination.evaluate(() => Object.keys(localStorage).sort())
+  const firstBoot = Date.now()
+  async function bootAfter(minutes) {
+    // End the previous session and discard its timers before advancing the device clock.
+    await duringRestore.goto('about:blank')
+    await duringRestore.clock.setFixedTime(firstBoot + minutes * 60_000)
+    await duringRestore.goto(origin + '/settings')
+    await duringRestore.getByRole('button', { name: 'Download backup' }).waitFor()
+    await duringRestore.waitForFunction(name => window.deletionRequests.includes(name + '-owner'), activeName)
+  }
+  const databaseNames = () => duringRestore.evaluate(async () => (await indexedDB.databases()).map(info => info.name))
+  await bootAfter(0)
+  const namesDuringGrace = await databaseNames()
   assert.ok(namesDuringGrace.includes('automech-restore-abandoned'), 'ownerless copies get time to finish')
   assert.ok(namesDuringGrace.includes('automech-restore-old-bundle'))
   assert.ok(namesDuringGrace.includes('another-shop'))
@@ -421,9 +429,17 @@ try {
     }
   }))
   assert.equal(oldCustomer, 'Sam')
-  await duringRestore.clock.fastForward('05:01')
-  await duringRestore.waitForFunction(async () => !(await indexedDB.databases()).some(info => info.name === 'automech-restore-abandoned'))
-  assert.ok(!(await duringRestore.evaluate(() => window.deletionRequests)).includes('automech-restore-old-bundle'))
+  await bootAfter(4)
+  assert.ok((await databaseNames()).includes('automech-restore-abandoned'))
+  await bootAfter(6)
+  await duringRestore.waitForFunction(() => window.deletionRequests.includes('automech-restore-abandoned'), null, { timeout: 5_000 })
+  await duringRestore.waitForFunction(keys => JSON.stringify(Object.keys(localStorage).sort()) === JSON.stringify(keys), storageKeys)
+  const deletions = await duringRestore.evaluate(() => window.deletionRequests)
+  assert.ok(!deletions.includes('automech-restore-old-bundle'))
+  assert.ok(!deletions.includes(activeName))
+  const namesAfterGrace = await databaseNames()
+  assert.ok(!namesAfterGrace.includes('automech-restore-abandoned'))
+  assert.ok(namesAfterGrace.includes('another-shop'))
   await destination.evaluate(() => { window.restoreReader.close() })
   await destination.getByRole('checkbox', { name: /Replace all shop records/ }).waitFor()
   await duringRestore.close()

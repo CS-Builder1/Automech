@@ -114,24 +114,40 @@ function checkTables(input: unknown, schemaVersion: number): BackupTables {
 
 const restorePrefix = 'automech-restore-'
 const ownerSuffix = '-owner'
+const firstSeenPrefix = 'automech:restore-first-seen:'
 const legacyRestoreGraceMs = 5 * 60_000
 
-export async function cleanAbandonedRestores() {
-  const names = await Dexie.getDatabaseNames()
-  const restores = new Set(names.filter(name => name.startsWith(restorePrefix))
-    .map(name => name.endsWith(ownerSuffix) ? name.slice(0, -ownerSuffix.length) : name))
-  await Promise.all(Array.from(restores, async name => {
-    if (!names.includes(name + ownerSuffix)) {
-      // An older tab can close its scratch connection between upgrade steps.
-      // Give it time to finish and remove its copy before collecting leftovers.
-      await new Promise(resolve => setTimeout(resolve, legacyRestoreGraceMs))
-      if (!(await Dexie.getDatabaseNames()).includes(name)) return
+async function deleteRestore(name: string) {
+  // An active owner keeps this request pending, including between schema upgrades.
+  await Dexie.delete(name + ownerSuffix)
+  await Dexie.delete(name)
+}
+
+async function cleanLegacyRestores(names: Set<string>) {
+  // Older tabs remove their own scratch copies when they finish.
+  for (const key of Object.keys(localStorage)) {
+    if (key.startsWith(firstSeenPrefix) && !names.has(key.slice(firstSeenPrefix.length))) localStorage.removeItem(key)
+  }
+  const now = Date.now()
+  await Promise.all(Array.from(names, async name => {
+    const key = firstSeenPrefix + name
+    const firstSeen = Number(localStorage.getItem(key))
+    if (!Number.isSafeInteger(firstSeen) || firstSeen <= 0 || firstSeen > now) {
+      // A new observation or a clock moved backwards starts a full grace period.
+      localStorage.setItem(key, String(now))
+    } else if (now - firstSeen >= legacyRestoreGraceMs) {
+      await deleteRestore(name)
+      localStorage.removeItem(key)
     }
-    // This request waits while a tab holds the owner connection, including
-    // the gap between closing the old schema and opening the upgraded one.
-    await Dexie.delete(name + ownerSuffix)
-    await Dexie.delete(name)
   }))
+}
+
+export async function cleanAbandonedRestores() {
+  const names = (await Dexie.getDatabaseNames()).filter(name => name.startsWith(restorePrefix))
+  const owned = new Set(names.filter(name => name.endsWith(ownerSuffix)).map(name => name.slice(0, -ownerSuffix.length)))
+  const legacy = new Set(names.filter(name => !name.endsWith(ownerSuffix) && !owned.has(name)))
+  // Owner cleanup can proceed even when Web Storage is unavailable for legacy observations.
+  await Promise.all([cleanLegacyRestores(legacy), ...Array.from(owned, deleteRestore)])
 }
 
 /** Run the app's own schema upgrades on an isolated copy before touching live records. */
