@@ -200,14 +200,22 @@ try {
   await settingsTab.evaluate(async () => {
     const { db } = await import('/src/db/database.ts')
     const update = db.settings.update.bind(db.settings)
+    window.settingsWriteCount = 0
     db.settings.update = async (...args) => {
+      window.settingsWriteCount++
       await new Promise(resolve => { window.finishSave = resolve })
       return update(...args)
     }
   })
-  await settingsTab.getByRole('button', { name: 'Save settings' }).click()
+  const saveButton = settingsTab.getByRole('button', {name: 'Save settings'})
+  await saveButton.focus()
+  await settingsTab.keyboard.press('Enter')
   await settingsTab.waitForFunction(() => !!window.finishSave)
+  assert.equal(await saveButton.evaluate(button => document.activeElement === button), true, 'saving lost keyboard focus')
+  assert.equal(await saveButton.getAttribute('aria-disabled'), 'true')
+  await settingsTab.keyboard.press('Enter')
   await tax.fill('9.5')
+  assert.equal(await settingsTab.evaluate(() => window.settingsWriteCount), 1)
   await settingsTab.evaluate(() => window.finishSave())
   await page.waitForFunction(async () => {
     const { db } = await import('/src/db/database.ts')

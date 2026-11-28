@@ -150,7 +150,7 @@ export function Settings() {
 
         {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
         <div className="flex items-center gap-3">
-          <Button type="submit" disabled={!!pending}>Save settings</Button>
+          <Button type="submit" aria-disabled={!!pending} className="aria-disabled:cursor-not-allowed aria-disabled:opacity-60">Save settings</Button>
           {saved && <span className="text-sm font-medium text-emerald-600">Saved ✓</span>}
         </div>
       </form>
