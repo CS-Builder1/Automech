@@ -376,8 +376,7 @@ test('an old editor cannot replay a note across a committed backup restore', asy
   await page.close()
 })
 
-test('a full browser draft journal still commits edits to IndexedDB', async () => {
-  const {page,order} = await newJob()
+async function fillSessionStorage(page) {
   await page.evaluate(() => {
     // Find the actual per-origin quota without replacing the Storage API.
     let size = 1024 * 1024
@@ -387,6 +386,11 @@ test('a full browser draft journal still commits edits to IndexedDB', async () =
       catch { size = Math.floor(size / 2) }
     }
   })
+}
+
+test('a full browser draft journal still commits edits to IndexedDB', async () => {
+  const {page,order} = await newJob()
+  await fillSessionStorage(page)
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
   await page.getByLabel('Diagnosis / notes').fill('Replacement bearing')
@@ -399,6 +403,39 @@ test('a full browser draft journal still commits edits to IndexedDB', async () =
     return (await db.workOrders.get(id)).diagnosis
   },order.id),'Replacement bearing')
   assert.deepEqual(errors,[])
+  await page.close()
+})
+
+test('a reload after the draft journal fills preserves the last committed note', async () => {
+  const {page, order} = await newJob()
+  const notes = page.getByLabel('Diagnosis / notes')
+  const saved = 'Brake pads OK'
+  const latest = 'Replace rotors'
+  await notes.fill(saved)
+  await page.waitForFunction(async ({id, saved}) => {
+    const {db} = await import('/src/db/database.ts')
+    return (await db.workOrders.get(id)).diagnosis === saved
+  }, {id: order.id, saved})
+  // Interrupt further saves in this document. Reload restores the normal IndexedDB writer.
+  await page.evaluate(async () => {
+    const {workOrdersRepo} = await import('/src/repositories/workOrders.ts')
+    workOrdersRepo.update = () => new Promise(() => {})
+  })
+  await notes.fill('R')
+  const key = 'automech:job-draft:initial:' + order.id + ':diagnosis'
+  assert.equal(await page.evaluate(key => JSON.parse(sessionStorage.getItem(key)).value, key), 'R')
+  await fillSessionStorage(page)
+  await notes.fill(latest)
+  assert.equal(await notes.inputValue(), latest)
+
+  await page.reload()
+  await notes.waitFor()
+  await page.waitForFunction(key => sessionStorage.getItem(key) === null, key)
+  assert.equal(await notes.inputValue(), saved)
+  assert.equal(await page.evaluate(async id => {
+    const {db} = await import('/src/db/database.ts')
+    return (await db.workOrders.get(id)).diagnosis
+  }, order.id), saved)
   await page.close()
 })
 

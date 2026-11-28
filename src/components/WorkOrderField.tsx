@@ -26,7 +26,10 @@ function clearDraft(key: string) {
 }
 
 function writeDraft(key: string, draft: Draft) {
-  try { sessionStorage.setItem(key, JSON.stringify(draft)) } catch { /* Keep the previous recovery copy if Web Storage is full. */ }
+  try { sessionStorage.setItem(key, JSON.stringify(draft)) } catch {
+    // A reload would replay the older edit while the latest value is only in memory.
+    clearDraft(key)
+  }
 }
 
 /** The same-tab draft covers reloads that interrupt the IndexedDB transaction. */
