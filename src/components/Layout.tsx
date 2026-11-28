@@ -1,4 +1,4 @@
-import { NavLink, Outlet } from 'react-router-dom'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { OfflineBadge } from './OfflineBadge'
 
@@ -24,6 +24,7 @@ const nav: NavItem[] = [
 ]
 
 export function Layout() {
+  const notice = useLocation().state?.notice
   return (
     <div className="mx-auto flex min-h-full w-full max-w-5xl flex-col md:flex-row">
       {/* Desktop sidebar */}
@@ -61,6 +62,7 @@ export function Layout() {
           <div className="hidden justify-end md:flex">
             <OfflineBadge />
           </div>
+          {typeof notice === 'string' && <p role="alert" className="mb-4 text-sm font-medium">{notice}</p>}
           <Outlet />
         </main>
       </div>

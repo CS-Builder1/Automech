@@ -4,7 +4,7 @@ import { vehiclesRepo } from '@/repositories/vehicles'
 import { customersRepo } from '@/repositories/customers'
 import { useIntakeAutosave } from '@/hooks/useIntakeAutosave'
 import { db } from '@/db/database'
-import { readDraft, createIntakeRecord, intakePath, parseMileage, readIntakeForm, saveIntakeForm } from '@/lib/intakeDraft'
+import { readDraft, createIntakeRecord, cancelIntakeForm, parseMileage, readIntakeForm, saveIntakeForm } from '@/lib/intakeDraft'
 import { decodeVin, isPlausibleVin } from '@/lib/vin'
 import type { VehicleType } from '@/db/types'
 import { PageHeader } from '@/components/ui/Page'
@@ -179,14 +179,8 @@ function VehicleEditor({ customerId, vehicleId, draft }: { customerId: string; v
   }
 
   async function cancel() {
-    try {
-      await saveIntakeForm(cacheKey, blankVehicle, await autosave.lastSaved(), null)
-    } catch {
-      // Cleanup may lose a race with another editor. Leave its saved draft intact.
-      navigate('/jobs', { replace: true })
-      return
-    }
-    navigate(draft ? intakePath(draft) : recordPath)
+    const { path, notice } = await cancelIntakeForm(cacheKey, blankVehicle, await autosave.lastSaved(), recordPath)
+    navigate(path, { replace: Boolean(notice), state: { notice } })
   }
 
   if (!loaded) return <p>Loading…</p>

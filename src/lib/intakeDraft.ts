@@ -15,6 +15,7 @@ const currentTab = prefix + 'current'
 const retentionMs = 14 * 24 * 60 * 60 * 1000
 const closedMessage = 'This intake draft has already been closed. Open a new job to continue.'
 type StoredDraft = IntakeDraft & { updatedAt?: number }
+let detachedIntake: string | undefined
 
 export function readDraft(id: string): StoredDraft | null {
   const raw = localStorage.getItem(prefix + id)
@@ -28,8 +29,13 @@ export function readDraft(id: string): StoredDraft | null {
   return null
 }
 
-function saveDraft(id: string, draft: IntakeDraft) {
+function rememberCurrentIntake(id: string) {
   sessionStorage.setItem(currentTab, id)
+  detachedIntake = undefined
+}
+
+function saveDraft(id: string, draft: IntakeDraft) {
+  rememberCurrentIntake(id)
   localStorage.setItem(prefix + id, JSON.stringify({ ...draft, updatedAt: Date.now() }))
 }
 
@@ -90,12 +96,42 @@ export function updateIntake(id: string, expected: IntakeDraft, next: IntakeDraf
   }, ['customers', 'vehicles'])
 }
 
-export function cancelIntake(id: string, expected: IntakeDraft) {
-  return editIntake(id, async () => {
-    requireCurrentDraft(id, expected)
-    await sealPendingChildren(id, expected)
-    finishIntake(id)
-  }, ['customers', 'vehicles'])
+function clearCurrentIntake(id: string) {
+  try {
+    if (sessionStorage.getItem(currentTab) === id) sessionStorage.removeItem(currentTab)
+  } catch {
+    // Skip this pointer on the next New job even if the browser denied its removal.
+    detachedIntake = id
+  }
+}
+
+export async function cancelIntake(id: string, expected: IntakeDraft) {
+  try {
+    await editIntake(id, async () => {
+      requireCurrentDraft(id, expected)
+      await sealPendingChildren(id, expected)
+      finishIntake(id)
+    }, ['customers', 'vehicles'])
+  } catch (error) {
+    clearCurrentIntake(id)
+    throw error
+  }
+}
+
+export async function cancelIntakeForm<T extends object>(key: string | null, defaults: T, expected: T, standalonePath: string) {
+  if (!key) return { path: standalonePath }
+  const id = key.split('.')[0]
+  try {
+    await saveIntakeForm(key, defaults, expected, null)
+    return { path: intakePath(id) }
+  } catch {
+    try {
+      if (!(await db.workOrders.get(id)) && readDraft(id)) {
+        return { path: intakePath(id), notice: 'Could not discard the saved form. Reopen it from this intake to review its latest details.' }
+      }
+    } catch { /* Storage may be unavailable while checking whether the intake is still open. */ }
+    return { path: '/jobs', notice: 'Could not discard the saved form. Its intake is closed or unavailable.' }
+  }
 }
 
 // Draft IDs contain no dots. Child forms share their parent's ID as a prefix.
@@ -118,7 +154,7 @@ export function pruneIntakeDrafts() {
       const draft = readDraft(id)
       if (!draft || (typeof draft.updatedAt === 'number' && draft.updatedAt < now - retentionMs)) {
         for (const key of keys) localStorage.removeItem(key)
-        if (sessionStorage.getItem(currentTab) === id) sessionStorage.removeItem(currentTab)
+        clearCurrentIntake(id)
       } else if (!Number.isFinite(draft.updatedAt)) {
         // Undated drafts from earlier releases receive one recovery window.
         localStorage.setItem(prefix + id, JSON.stringify({ ...draft, updatedAt: now }))
@@ -144,10 +180,10 @@ export function beginIntake(params: URLSearchParams): string {
   const previous = supplied || sessionStorage.getItem(currentTab)
   const customerId = params.get('customerId') || ''
   const vehicleId = params.get('vehicleId') || ''
-  if (previous) {
+  if (previous && (supplied || previous !== detachedIntake)) {
     const saved = readDraft(previous)
     if (saved && (!customerId || saved.customerId === customerId) && (!vehicleId || saved.vehicleId === vehicleId)) {
-      sessionStorage.setItem(currentTab, previous)
+      rememberCurrentIntake(previous)
       return previous
     }
   }
@@ -161,7 +197,7 @@ export function finishIntake(id: string) {
   for (const stored of Object.keys(localStorage)) {
     if (stored === key || stored.startsWith(key + '.')) localStorage.removeItem(stored)
   }
-  if (sessionStorage.getItem(currentTab) === id) sessionStorage.removeItem(currentTab)
+  clearCurrentIntake(id)
 }
 
 export function intakePath(id: string) {

@@ -356,17 +356,74 @@ try {
   await canceledVehicle.goto(base + '/customers/' + customerId + '/vehicles/new?draft=' + abandonedId)
   const closer = competing
   await closer.goto(abandonedURL)
+  const blocked = await context.newPage()
+  await blocked.goto(abandonedURL)
+  await blocked.locator('#complaint').waitFor()
   await closer.locator('#complaint').fill('New complaint in the other tab')
   await closer.waitForFunction(id => JSON.parse(localStorage.getItem('automech.intake.' + id)).complaint === 'New complaint in the other tab', abandonedId)
   await abandoned.getByRole('button', {name: 'Cancel', exact: true}).click()
   await abandoned.waitForURL(base + '/jobs', {timeout: 2500})
   assert.equal(await closer.evaluate(id => JSON.parse(localStorage.getItem('automech.intake.' + id)).complaint, abandonedId), 'New complaint in the other tab')
+  await abandoned.getByRole('alert').filter({hasText: /discard.*intake/i}).waitFor()
+  await abandoned.getByRole('link', {name: /new job/i}).click()
+  assert.equal(await abandoned.locator('#complaint').inputValue(), '')
+  const freshId = new URL(abandoned.url()).searchParams.get('draft')
+  assert.notEqual(freshId, abandonedId)
+  await abandoned.getByRole('link', {name: /Resume intake.*New complaint in the other tab/}).waitFor()
+  await blocked.evaluate(() => {
+    const removeItem = Storage.prototype.removeItem
+    Storage.prototype.removeItem = function (key) {
+      if (this === sessionStorage && key === 'automech.intake.current') {
+        Storage.prototype.removeItem = removeItem
+        throw new DOMException('Storage unavailable', 'SecurityError')
+      }
+      return removeItem.call(this, key)
+    }
+  })
+  await blocked.getByRole('button', {name: 'Cancel', exact: true}).click()
+  await blocked.getByRole('link', {name: /new job/i}).click()
+  assert.equal(await blocked.locator('#complaint').inputValue(), '')
+  await blocked.getByRole('link', {name: /Resume intake.*New complaint in the other tab/}).click()
+  assert.equal(await blocked.locator('#complaint').inputValue(), 'New complaint in the other tab')
+  await blocked.close()
+
+  for (const [editor, field, value] of [
+    [canceledCustomer, '#company', 'Another customer edit'],
+    [canceledVehicle, '#plate', 'NEWER-PLATE'],
+  ]) {
+    const childURL = editor.url()
+    await firstChild.goto(childURL)
+    await editAndReload(firstChild, field, value)
+    await editor.getByRole('button', {name: 'Cancel', exact: true}).click()
+    await editor.waitForURL(abandonedURL, {timeout: 2500})
+    await editor.getByRole('alert').filter({hasText: /discard.*form/i}).waitFor()
+    assert.equal(await editor.locator('#complaint').inputValue(), 'New complaint in the other tab')
+    await editor.goto(childURL)
+    assert.equal(await editor.locator(field).inputValue(), value)
+  }
+  // If this renderer cannot read the parent at all, Cancel can still go to Jobs.
+  await firstChild.evaluate(id => {
+    const getItem = Storage.prototype.getItem
+    Storage.prototype.getItem = function (key) {
+      if (this === localStorage && key === 'automech.intake.' + id) throw new DOMException('Storage unavailable', 'SecurityError')
+      return getItem.call(this, key)
+    }
+  }, abandonedId)
+  await firstChild.getByRole('button', {name: 'Cancel', exact: true}).click()
+  await firstChild.waitForURL(base + '/jobs', {timeout: 2500})
+  await firstChild.getByRole('alert').filter({hasText: /discard.*form/i}).waitFor()
   await abandoned.goto(abandonedURL)
+  await abandoned.locator('#complaint').waitFor()
+  await abandoned.evaluate(id => sessionStorage.setItem('automech.intake.current', id), freshId)
   await closer.getByRole('button', {name: 'Cancel', exact: true}).click()
+  await closer.waitForURL(base + '/jobs')
+  assert.equal(await closer.getByRole('alert').count(), 0)
   for (const editor of [abandoned, canceledCustomer, canceledVehicle]) {
     await editor.getByRole('button', {name: 'Cancel', exact: true}).click()
     await editor.waitForURL(base + '/jobs', {timeout: 2500})
+    await editor.getByRole('alert').filter({hasText: /discard/i}).waitFor()
   }
+  assert.equal(await abandoned.evaluate(() => sessionStorage.getItem('automech.intake.current')), freshId)
   assert.equal(await closer.evaluate(id => localStorage.getItem('automech.intake.' + id), abandonedId), null)
   console.log('A superseded intake cannot overwrite, resurrect or convert the active tab’s draft.')
   console.log('Browser restart recovers independent intakes and discards expired drafts and child forms.')

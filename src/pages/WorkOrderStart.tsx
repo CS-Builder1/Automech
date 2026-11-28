@@ -149,7 +149,10 @@ function Intake({ id, initial, others }: {
           <Button type="button" variant="secondary" disabled={saving} onClick={async () => {
             try {
               await cancelIntake(id, await autosave.lastSaved())
-            } catch { /* Another editor may have changed or closed the draft. */ }
+            } catch {
+              navigate('/jobs', { replace: true, state: { notice: 'Could not discard the intake. Start a new job to see any remaining drafts.' } })
+              return
+            }
             navigate('/jobs', { replace: true })
           }}>Cancel</Button>
         </div>
